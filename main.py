@@ -14,12 +14,16 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
+    if(not message.channel.name.startswith("tik-tok")):
+        return
+
     if message.author == client.user:
         return
 
     if message.content.startswith('$hello'):
         await message.channel.send('Hello!')
 
+    downloadResult = ""
     if message.content.startswith('https'):
         await message.channel.send('TikBot downloading video now!')
         downloadResult = download(message.content)
@@ -28,6 +32,8 @@ async def on_message(message):
         if(downloadResult.startswith("Error")):
             await message.channel.send('TikBot has failed you. Consider berating my human if this was not expected.')
             return
+    else:
+        return
 
     # Check file size, if it's small enough just send it!
     fileSize = os.stat(downloadResult).st_size
