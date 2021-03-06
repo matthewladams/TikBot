@@ -63,7 +63,7 @@ async def on_message(message):
         bitrateKilobits = (7000 * 8)/duration
         bitrateKilobits = round(bitrateKilobits)
         print("Calced bitrate = " + str(bitrateKilobits))
-        ffmpeg.input(fileName).output("small_" + fileName, **{'b:v': str(bitrateKilobits) + 'k'}).run()
+        ffmpeg.input(fileName).output("small_" + fileName, **{'b:v': str(bitrateKilobits) + 'k', 'threads': '4'}).run()
         with open("small_" + fileName, 'rb') as fp:
             await message.channel.send(file=discord.File(fp, str("small_" + fileName)))
         # Delete the compressed and original file
