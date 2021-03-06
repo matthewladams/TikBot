@@ -1,26 +1,29 @@
 import youtube_dl
 
 def download(videoUrl):
+    response = {'fileName':  '', 'duration':  0, 'messages': ''}
     ydl = youtube_dl.YoutubeDL({'outtmpl': '%(id)s.mp4'})
 
-    ydl_opts = {}
 
     with ydl:
-        result = ydl.extract_info(
-            videoUrl,
-            download=True
-        )
+        try:
+            result = ydl.extract_info(
+                videoUrl,
+                download=True
+            )
+        except:
+            response['messages'] = 'Error: Download Failed'
+            return response
 
     if 'entries' in result:
         # Can be a playlist or a list of videos
-        video = result['entries'][0]
-        return "Error: More than 1 result found"
+        response['messages'] = 'Error: More than 1 result found. Please supply a single video only.'
+        return response
     else:
         # Just a video
         video = result
 
-    print(video)
-    video_url = video['title']
-    videoId = video['id']
+    response['duration'] = video['duration']
+    response['fileName'] = video['id'] + ".mp4"
 
-    return videoId + ".mp4"
+    return response

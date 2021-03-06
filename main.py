@@ -3,6 +3,7 @@ import os
 import ffmpeg
 from dotenv import load_dotenv 
 from downloader import download
+from compressionMessages import getCompressionMessage
 
 load_dotenv()
 
@@ -14,44 +15,60 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
+    # Only do anything in TikTok channels
     if(not message.channel.name.startswith("tik-tok")):
         return
 
+    # Ignore our own messages
     if message.author == client.user:
         return
 
+    # Be polite!
     if message.content.startswith('$hello'):
         await message.channel.send('Hello!')
 
-    downloadResult = ""
+    fileName = ""
+    duration = 0
+    messages = ""
+
     if message.content.startswith('https'):
         await message.channel.send('TikBot downloading video now!')
-        downloadResult = download(message.content)
-        print(downloadResult)
+        downloadResponse = download(message.content)
+        fileName = downloadResponse['fileName']
+        duration = downloadResponse['duration']
+        messages = downloadResponse['messages']
 
-        if(downloadResult.startswith("Error")):
-            await message.channel.send('TikBot has failed you. Consider berating my human if this was not expected.')
+        print("Downloaded: " + fileName + " For User: " + str(message.author))
+
+        if(messages.startswith("Error")):
+            await message.channel.send('TikBot has failed you. Consider berating my human if this was not expected.\Message: ' + messages)
             return
     else:
         return
 
     # Check file size, if it's small enough just send it!
-    fileSize = os.stat(downloadResult).st_size
+    fileSize = os.stat(fileName).st_size
 
     if(fileSize < 8000000):
-        with open(downloadResult, 'rb') as fp:
-            await message.channel.send(file=discord.File(fp, str(downloadResult)))
-        os.remove(downloadResult)
+        with open(fileName, 'rb') as fp:
+            await message.channel.send(file=discord.File(fp, str(fileName)))
+        os.remove(fileName)
 
     else:
         # We need to compress the file below 8MB or discord will make a sad
-        await message.channel.send('TikBot will compress your video for you as it is too chonky, please give me a sec.')
-        ffmpeg.input(downloadResult).output("small_" + downloadResult, **{'b:v': '1000k'}).run()
-        with open("small_" + downloadResult, 'rb') as fp:
-            await message.channel.send(file=discord.File(fp, str("small_" + downloadResult)))
+        compressionMessage = getCompressionMessage()
+        await message.channel.send(compressionMessage)
+        print("Duration = " + str(duration))
+        # Give us 7MB files with VBR encoding to allow for some overhead
+        bitrateKilobits = (7000 * 8)/duration
+        bitrateKilobits = round(bitrateKilobits)
+        print("Calced bitrate = " + str(bitrateKilobits))
+        ffmpeg.input(fileName).output("small_" + fileName, **{'b:v': str(bitrateKilobits) + 'k'}).run()
+        with open("small_" + fileName, 'rb') as fp:
+            await message.channel.send(file=discord.File(fp, str("small_" + fileName)))
         # Delete the compressed and original file
-        os.remove(downloadResult)
-        os.remove("small_" + downloadResult)
+        os.remove(fileName)
+        os.remove("small_" + fileName)
 
 
 client.run(os.getenv('TOKEN'))
