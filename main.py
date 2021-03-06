@@ -60,8 +60,12 @@ async def on_message(message):
         await message.channel.send(compressionMessage)
         print("Duration = " + str(duration))
         # Give us 7MB files with VBR encoding to allow for some overhead
-        bitrateKilobits = (7000 * 8)/duration
-        bitrateKilobits = round(bitrateKilobits)
+        bitrateKilobits = 0
+        if(duration != 0):
+            bitrateKilobits = (7000 * 8)/duration
+            bitrateKilobits = round(bitrateKilobits)
+        else:
+            bitrateKilobits = 800
         print("Calced bitrate = " + str(bitrateKilobits))
         ffmpeg.input(fileName).output("small_" + fileName, **{'b:v': str(bitrateKilobits) + 'k', 'threads': '4'}).run()
         with open("small_" + fileName, 'rb') as fp:

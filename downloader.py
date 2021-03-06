@@ -23,7 +23,8 @@ def download(videoUrl):
         # Just a video
         video = result
 
-    response['duration'] = video['duration']
+    if('duration' in video):
+        response['duration'] = video['duration']
     response['fileName'] = video['id'] + ".mp4"
 
     return response
