@@ -1,0 +1,10 @@
+.env*
+
+*.pyc
+*.mp4
+*.mp3
+*.mkv
+
+.vscode/*
+.vs/*
+__*

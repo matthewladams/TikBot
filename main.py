@@ -15,21 +15,49 @@ async def on_ready():
 
 @client.event
 async def on_message(message):
-    # Only do anything in TikTok channels
-    if(not message.channel.name.startswith("tik-tok")):
-        return
-
     # Ignore our own messages
     if message.author == client.user:
+        return
+
+    fileName = ""
+    duration = 0
+    messages = ""
+
+    # Do special things in DMs
+    if(type(message.channel) is discord.DMChannel):
+        if message.content.startswith('🎵'):
+            url = message.content.replace('🎵', '')
+            downloadResponse = download(url)
+            fileName = downloadResponse['fileName']
+            duration = downloadResponse['duration']
+            messages = downloadResponse['messages']
+
+            print("Downloaded: " + fileName + " For User: " + str(message.author))
+
+            if(messages.startswith("Error")):
+                await message.author.send('TikBot has failed you. Consider berating my human if this was not expected.\nMessage: ' + messages)
+                return
+
+            audioFilename = "audio_" + fileName + ".mp3"
+            ffmpeg.input(fileName).output(audioFilename, **{'b:a': '320k', 'threads': '1'}).run()
+            with open(audioFilename, 'rb') as fp:
+                await message.author.send(file=discord.File(fp, str(audioFilename)))
+            # Delete the compressed and original file
+            os.remove(fileName)
+            os.remove(audioFilename)
+        else:
+            await message.author.send('👋')
+
+        return
+
+    # Only do anything in TikTok channels
+    if(not message.channel.name.startswith("tik-tok")):
         return
 
     # Be polite!
     if message.content.startswith('$hello'):
         await message.channel.send('Hello!')
 
-    fileName = ""
-    duration = 0
-    messages = ""
 
     if message.content.startswith('https'):
         await message.channel.send('TikBot downloading video now!')
@@ -41,7 +69,7 @@ async def on_message(message):
         print("Downloaded: " + fileName + " For User: " + str(message.author))
 
         if(messages.startswith("Error")):
-            await message.channel.send('TikBot has failed you. Consider berating my human if this was not expected.\Message: ' + messages)
+            await message.channel.send('TikBot has failed you. Consider berating my human if this was not expected.\nMessage: ' + messages)
             return
     else:
         return

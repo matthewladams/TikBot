@@ -2,7 +2,7 @@ import youtube_dl
 
 def download(videoUrl):
     response = {'fileName':  '', 'duration':  0, 'messages': ''}
-    ydl = youtube_dl.YoutubeDL({'outtmpl': '%(id)s.mp4'})
+    ydl = youtube_dl.YoutubeDL({'outtmpl': '%(id)s.mp4', 'merge_output_format': 'mp4'})
 
 
     with ydl:
