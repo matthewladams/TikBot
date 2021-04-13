@@ -4,6 +4,7 @@ import ffmpeg
 from dotenv import load_dotenv 
 from downloader import download
 from compressionMessages import getCompressionMessage
+from validator import extractUrl, isSupportedUrl
 
 load_dotenv()
 
@@ -58,10 +59,29 @@ async def on_message(message):
     if message.content.startswith('$hello'):
         await message.channel.send('Hello!')
 
+    # Extract and validate the request 
+    extractResponse = extractUrl(message.content)
+    url = extractResponse["url"]
+    messages = extractResponse['messages']
+    if(messages.startswith("Error")):
+        await message.channel.send('TikBot encountered an error determing a URL. Consider berating my human if this was not expected.\nMessage: ' + messages)
+        return
+
+    print("Got URL: " + url + " For User: " + str(message.author))
+    if('🤖' not in message.content):
+        # Validate unless we've been reqeuested not to
+        validateResponse = isSupportedUrl(url)
+        messages = validateResponse['messages']
+        if(messages.startswith("Error")):
+            await message.channel.send('TikBot encountered an error validating the URL. Consider berating my human if this was not expected.\nMessage: ' + messages)
+            return
+        if(validateResponse['supported'] == 'false'):
+            # Unsupported URL, return silently without doing anything
+            return
 
     if message.content.startswith('https'):
         await message.channel.send('TikBot downloading video now!')
-        downloadResponse = download(message.content)
+        downloadResponse = download(url)
         fileName = downloadResponse['fileName']
         duration = downloadResponse['duration']
         messages = downloadResponse['messages']
