@@ -79,19 +79,16 @@ async def on_message(message):
             # Unsupported URL, return silently without doing anything
             return
 
-    if message.content.startswith('https'):
-        await message.channel.send('TikBot downloading video now!')
-        downloadResponse = download(url)
-        fileName = downloadResponse['fileName']
-        duration = downloadResponse['duration']
-        messages = downloadResponse['messages']
+    await message.channel.send('TikBot downloading video now!')
+    downloadResponse = download(url)
+    fileName = downloadResponse['fileName']
+    duration = downloadResponse['duration']
+    messages = downloadResponse['messages']
 
-        print("Downloaded: " + fileName + " For User: " + str(message.author))
+    print("Downloaded: " + fileName + " For User: " + str(message.author))
 
-        if(messages.startswith("Error")):
-            await message.channel.send('TikBot has failed you. Consider berating my human if this was not expected.\nMessage: ' + messages)
-            return
-    else:
+    if(messages.startswith("Error")):
+        await message.channel.send('TikBot has failed you. Consider berating my human if this was not expected.\nMessage: ' + messages)
         return
 
     # Check file size, if it's small enough just send it!
