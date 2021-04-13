@@ -18,7 +18,7 @@ def extractUrl(inputString):
 def isSupportedUrl(url):
     response = {'url':  '', 'supported': 'false', 'messages': ''}
     
-    supportedDomains = ['youtube', 'tiktok', 'instagram']
+    supportedDomains = ['youtube', 'tiktok', 'instagram', 'reddit']
 
     for domain in supportedDomains:
         if(domain in url):
