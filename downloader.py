@@ -16,9 +16,15 @@ def download(videoUrl):
             return response
 
     if 'entries' in result:
-        # Can be a playlist or a list of videos
-        response['messages'] = 'Error: More than 1 result found. Please supply a single video only.'
-        return response
+        try:
+            # Return just the first item
+            video = result['entries'][0]
+            # Can be a playlist or a list of videos
+            if(len(result['entries']) > 1):
+                response['messages'] = 'Info: More than 1 result found. Returning the first video found.'
+        except:
+            response['messages'] = 'Error: Download Failed - something went very poorly handling a playlist response.'
+            return response
     else:
         # Just a video
         video = result
