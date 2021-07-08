@@ -10,6 +10,7 @@ messages = [
     "That's a big TikTok, are you compensating for something? Compressing it now.",
     "Flat Is Justice. Making your video conform.",
     "Thick thighs save lives, but this thick-tok won't fit into these Discord jeans. Shrinking it down.",
+    "With how much money you could make on DoorDash, you could have just had Nitro and not needed me!.",
     ]
     
 def getCompressionMessage():
