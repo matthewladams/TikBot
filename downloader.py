@@ -38,12 +38,13 @@ def download(videoUrl):
         # TODO - get the platform for this not just be lazy
         reposted = doesPostExist(video['id'], 'MattIsLazy')
         # TODO use named accessors somehow
-        print(f"trying repost detection with response {reposted}")
-        repostUserId = reposted[0]
-        print(f"got repost user id {repostUserId}")
-        repostTime = reposted[1]
-        if(repostUserId != ''):
-            response['messages'] = f'Error: This is a repost! Originally posted at {repostTime.strftime("%H:%M:%S")}'
+        if(reposted != None):
+            print(f"trying repost detection with response {reposted}")
+            repostUserId = reposted[0]
+            print(f"got repost user id {repostUserId}")
+            repostTime = reposted[1]
+            if(repostUserId != ''):
+                response['messages'] = f'Error: This is a repost! Originally posted at {repostTime.strftime("%m/%d/%Y %H:%M:%S")}'
 
         if(response['messages'] == ''):
             #Only save a post if we managed to download it TODO - Move this to after posting to discord
