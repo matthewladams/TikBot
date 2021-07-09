@@ -17,10 +17,10 @@ class TestUrlParser(unittest.TestCase):
 
 class TestDownloader(unittest.TestCase):
 
-    # def test_imgur_gallery(self):
-    #     url = "https://imgur.com/gallery/1jK60ka/"
-    #     downloadResponse = download(url)
-    #     self.assertEqual(downloadResponse["messages"], '')
+    def test_imgur_gallery(self):
+        url = "https://imgur.com/gallery/1jK60ka/"
+        downloadResponse = download(url)
+        self.assertEqual(downloadResponse["messages"], '')
     
     def test_tiktok(self):
         url = "https://vm.tiktok.com/ZSJbnjPMY/"

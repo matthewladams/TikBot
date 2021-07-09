@@ -68,6 +68,11 @@ async def on_message(message):
         return
 
     print("Got URL: " + url + " For User: " + str(message.author))
+
+    # Allow to force not downloading
+    if('🙅‍♂️' in message.content or '🙅‍♀️' in message.content):
+        return
+    
     if('🤖' not in message.content):
         # Validate unless we've been reqeuested not to
         validateResponse = isSupportedUrl(url)
