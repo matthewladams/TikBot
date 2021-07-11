@@ -14,11 +14,11 @@ except:
 	print("Cannot load DB details, repost detection will not be available")
 
 
-def savePost(userId, postId, platform):
+def savePost(userId, postId, platform, messageId):
 
 	cur = conn.cursor()
 
-	cur.execute("INSERT INTO posts (\"userId\", \"videoId\", \"platform\", \"postDateTime\") VALUES (%s, %s, %s, %s)", (userId, postId, platform, datetime.now(tz=None)))
+	cur.execute("INSERT INTO posts (\"userId\", \"videoId\", \"platform\", \"postDateTime\", \"discordMessageId\") VALUES (%s, %s, %s, %s, %s)", (userId, postId, platform, datetime.now(tz=None), messageId))
 
 	conn.commit()
 
@@ -27,7 +27,7 @@ def savePost(userId, postId, platform):
 def doesPostExist(videoId, platform):
 	cur = conn.cursor()
 
-	cur.execute("SELECT \"userId\", \"postDateTime\" FROM posts WHERE \"videoId\"=(%s) AND \"platform\"=(%s) ORDER BY \"postId\" DESC LIMIT 1", (videoId, platform))
+	cur.execute("SELECT \"userId\", \"postDateTime\", \"discordMessageId\" FROM posts WHERE \"videoId\"=(%s) AND \"platform\"=(%s) ORDER BY \"postId\" DESC LIMIT 1", (videoId, platform))
 	result = cur.fetchone()
 	print("Heres the result.......:")
 	print(result)

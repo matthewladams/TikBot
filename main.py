@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from downloader import download
 from compressionMessages import getCompressionMessage
 from validator import extractUrl, isSupportedUrl
+from dbInteraction import savePost, doesPostExist
 
 load_dotenv()
 
@@ -84,11 +85,13 @@ async def on_message(message):
             # Unsupported URL, return silently without doing anything
             return
 
-    await message.channel.send('TikBot downloading video now!')
+    await message.channel.send('TikBot downloading video now!', delete_after=10)
     downloadResponse = download(url)
     fileName = downloadResponse['fileName']
     duration = downloadResponse['duration']
     messages = downloadResponse['messages']
+    repost = downloadResponse['repost']
+    repostOriginalMesssageId = downloadResponse['repostOriginalMesssageId']
 
     print("Downloaded: " + fileName + " For User: " + str(message.author))
 
@@ -96,12 +99,29 @@ async def on_message(message):
         await message.channel.send('TikBot has failed you. Consider berating my human if this was not expected.\nMessage: ' + messages)
         return
 
+    if(repost == True):
+        try:
+            originalPost = await message.channel.fetch_message(repostOriginalMesssageId)
+            await message.channel.send(messages, reference=originalPost)
+            return
+        except:
+            await message.channel.send(messages + ' (Failed to find original post to reply to)')
+            return
+
     # Check file size, if it's small enough just send it!
     fileSize = os.stat(fileName).st_size
 
     if(fileSize < 8000000):
         with open(fileName, 'rb') as fp:
             await message.channel.send(file=discord.File(fp, str(fileName)))
+            #Only save a post if we managed to send it
+            try:
+                savePost(message.author.name, downloadResponse['videoId'], 'MattIsLazy', message.id)
+            except Exception as e:
+                print(f"Exception saving post details: {e}")
+
+
+
         os.remove(fileName)
 
     else:
@@ -120,6 +140,11 @@ async def on_message(message):
         ffmpeg.input(fileName).output("small_" + fileName, **{'b:v': str(bitrateKilobits) + 'k', 'b:a': '64k', 'fs': '8M', 'threads': '4'}).run()
         with open("small_" + fileName, 'rb') as fp:
             await message.channel.send(file=discord.File(fp, str("small_" + fileName)))
+            try:
+                savePost(message.author, downloadResponse['videoId'], 'MattIsLazy')
+            except Exception as e:
+                print(f"Exception saving post details: {e}")
+
         # Delete the compressed and original file
         os.remove(fileName)
         os.remove("small_" + fileName)

@@ -2,7 +2,7 @@ import youtube_dl
 from dbInteraction import savePost, doesPostExist
 
 def download(videoUrl):
-    response = {'fileName':  '', 'duration':  0, 'messages': ''}
+    response = {'fileName':  '', 'duration':  0, 'messages': '', 'videoId': '', 'repost': False, 'repostOriginalMesssageId': ''}
     ydl = youtube_dl.YoutubeDL({'outtmpl': '%(id)s.mp4', 'merge_output_format': 'mp4'})
 
 
@@ -33,6 +33,7 @@ def download(videoUrl):
     if('duration' in video):
         response['duration'] = video['duration']
     response['fileName'] = video['id'] + ".mp4"
+    response['videoId'] = video['id']
 
     try:
         # TODO - get the platform for this not just be lazy
@@ -44,14 +45,11 @@ def download(videoUrl):
             print(f"got repost user id {repostUserId}")
             repostTime = reposted[1]
             if(repostUserId != ''):
-                response['messages'] = f'Error: This is a repost! Originally posted at {repostTime.strftime("%m/%d/%Y %H:%M:%S")}'
-
-        if(response['messages'] == ''):
-            #Only save a post if we managed to download it TODO - Move this to after posting to discord
-            savePost("Test", video['id'], 'MattIsLazy')
-
-    except:
+                response['messages'] = f'This is a repost! Originally posted at {repostTime.strftime("%m/%d/%Y %H:%M:%S")}'
+                response['repost'] = True
+                response['repostOriginalMesssageId'] = reposted[2]
+    except Exception as e:
         # Don't die for repost detection
-        print("Exception trying to do repost detection")
+        print(f"Exception trying to do repost detection: {e}")
 
     return response
