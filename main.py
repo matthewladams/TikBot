@@ -137,13 +137,26 @@ async def on_message(message):
         else:
             bitrateKilobits = 800
         print("Calced bitrate = " + str(bitrateKilobits))
-        ffmpeg.input(fileName).output("small_" + fileName, **{'b:v': str(bitrateKilobits) + 'k', 'b:a': '64k', 'fs': '8M', 'threads': '4'}).run()
-        with open("small_" + fileName, 'rb') as fp:
-            await message.channel.send(file=discord.File(fp, str("small_" + fileName)))
-            try:
-                savePost(message.author, downloadResponse['videoId'], 'MattIsLazy')
-            except Exception as e:
-                print(f"Exception saving post details: {e}")
+        limitedDuration = False
+        if(bitrateKilobits < 200):
+            limitedDuration = True
+            bitrateKilobits = 200
+
+        try:
+            ffmpeg.input(fileName).output("small_" + fileName, **{'b:v': str(bitrateKilobits) + 'k', 'b:a': '64k', 'fs': '7.5M', 'threads': '4'}).run()
+            with open("small_" + fileName, 'rb') as fp:
+                    await message.channel.send(file=discord.File(fp, str("small_" + fileName)))
+                    if(limitedDuration):
+                        await message.channel.send('Video duration was limited to keep quality above total potato.')
+                    try:
+                        savePost(message.author.name, downloadResponse['videoId'], 'MattIsLazy', message.id)
+                    except Exception as e:
+                        print(f"Exception saving post details: {e}")
+        except Exception as e:
+            print(f"Exception posting compressed file: {e}")
+            await message.channel.send('Something about your link defeated my compression mechanism! Video is probably too long')
+
+                
 
         # Delete the compressed and original file
         os.remove(fileName)
