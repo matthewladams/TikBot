@@ -1,3 +1,4 @@
+from calculator import calculateBitrate, calculateBitrateAudioOnly
 import discord
 import os
 import ffmpeg
@@ -6,17 +7,13 @@ from downloader import download
 from compressionMessages import getCompressionMessage
 from validator import extractUrl, isSupportedUrl
 from dbInteraction import savePost, doesPostExist
+from concurrent.futures import ThreadPoolExecutor
 
 load_dotenv()
 
 client = discord.Client()
 
-@client.event
-async def on_ready():
-    print('We have logged in as {0.user}'.format(client))
-
-@client.event
-async def on_message(message):
+async def handleMessage(message):
     # Ignore our own messages
     if message.author == client.user:
         return
@@ -29,6 +26,8 @@ async def on_message(message):
     if(type(message.channel) is discord.DMChannel):
         if message.content.startswith('🎵'):
             url = message.content.replace('🎵', '')
+            await message.author.send('Attempting to turn this into a MP3 for ya.')
+
             downloadResponse = download(url)
             fileName = downloadResponse['fileName']
             duration = downloadResponse['duration']
@@ -41,9 +40,15 @@ async def on_message(message):
                 return
 
             audioFilename = "audio_" + fileName + ".mp3"
-            ffmpeg.input(fileName).output(audioFilename, **{'b:a': '320k', 'threads': '1'}).run()
-            with open(audioFilename, 'rb') as fp:
-                await message.author.send(file=discord.File(fp, str(audioFilename)))
+            calcResult = calculateBitrateAudioOnly(duration)
+            try:
+                ffmpeg.input(fileName).output(audioFilename, **{'b:a': str(calcResult.audioBitrate) + 'k', 'threads': '1'}).run()
+                with open(audioFilename, 'rb') as fp:
+                    await message.author.send(file=discord.File(fp, str(audioFilename)))
+            except Exception as e:
+                print(f"Exception sending audio only DM: {e}")
+                await message.channel.send('Something about your link defeated my compression mechanism! Link is probably too long. Exception Details: ' + str(e))
+
             # Delete the compressed and original file
             os.remove(fileName)
             os.remove(audioFilename)
@@ -120,8 +125,6 @@ async def on_message(message):
             except Exception as e:
                 print(f"Exception saving post details: {e}")
 
-
-
         os.remove(fileName)
 
     else:
@@ -130,23 +133,13 @@ async def on_message(message):
         await message.channel.send(compressionMessage)
         print("Duration = " + str(duration))
         # Give us 7MB files with VBR encoding to allow for some overhead
-        bitrateKilobits = 0
-        if(duration != 0):
-            bitrateKilobits = (7000 * 8)/duration
-            bitrateKilobits = round(bitrateKilobits)
-        else:
-            bitrateKilobits = 800
-        print("Calced bitrate = " + str(bitrateKilobits))
-        limitedDuration = False
-        if(bitrateKilobits < 200):
-            limitedDuration = True
-            bitrateKilobits = 200
+        calcResult = calculateBitrate(duration)
 
         try:
-            ffmpeg.input(fileName).output("small_" + fileName, **{'b:v': str(bitrateKilobits) + 'k', 'b:a': '64k', 'fs': '7.5M', 'threads': '4'}).run()
+            ffmpeg.input(fileName).output("small_" + fileName, **{'b:v': str(calcResult.videoBitrate) + 'k', 'b:a': str(calcResult.audioBitrate) + 'k', 'fs': '7.5M', 'threads': '4'}).run()
             with open("small_" + fileName, 'rb') as fp:
                     await message.channel.send(file=discord.File(fp, str("small_" + fileName)))
-                    if(limitedDuration):
+                    if(calcResult.durationLimited):
                         await message.channel.send('Video duration was limited to keep quality above total potato.')
                     try:
                         savePost(message.author.name, downloadResponse['videoId'], 'MattIsLazy', message.id)
@@ -156,11 +149,16 @@ async def on_message(message):
             print(f"Exception posting compressed file: {e}")
             await message.channel.send('Something about your link defeated my compression mechanism! Video is probably too long')
 
-                
-
         # Delete the compressed and original file
         os.remove(fileName)
         os.remove("small_" + fileName)
 
+@client.event
+async def on_ready():
+    print('We have logged in as {0.user}'.format(client))
+
+@client.event
+async def on_message(message):
+    await handleMessage(message)
 
 client.run(os.getenv('TOKEN'))
