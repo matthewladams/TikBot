@@ -91,7 +91,21 @@ async def handleMessage(message):
             return
 
     await message.channel.send('TikBot downloading video now!', delete_after=10)
-    downloadResponse = download(url)
+    
+    downloadResponse = {'fileName':  '', 'duration':  0, 'messages': '', 'videoId': '', 'repost': False, 'repostOriginalMesssageId': ''}
+
+    retries = 3
+    attemptcount = 1
+    # Retry because TikTok breaks for no good reason sometimes
+    while attemptcount <= retries:
+        downloadResponse = download(url)
+        messages = downloadResponse['messages']
+        if(messages.startswith("Error") and attemptcount < retries):
+            await message.channel.send('Download failed. Retrying!', delete_after=10)
+        else:
+            break
+        attemptcount += 1
+
     fileName = downloadResponse['fileName']
     duration = downloadResponse['duration']
     messages = downloadResponse['messages']
