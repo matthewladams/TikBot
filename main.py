@@ -119,6 +119,7 @@ async def handleMessage(message):
         return
 
     if(repost == True):
+        os.remove(fileName) # Don't keep the video
         try:
             originalPost = await message.channel.fetch_message(repostOriginalMesssageId)
             await message.channel.send(messages, reference=originalPost)
@@ -162,6 +163,7 @@ async def handleMessage(message):
         except Exception as e:
             print(f"Exception posting compressed file: {e}")
             await message.channel.send('Something about your link defeated my compression mechanism! Video is probably too long')
+            return # Do not delete these so we can see what was wrong with them later
 
         # Delete the compressed and original file
         os.remove(fileName)
