@@ -45,7 +45,7 @@ def download(videoUrl):
             print(f"got repost user id {repostUserId}")
             repostTime = reposted[1]
             if(repostUserId != ''):
-                response['messages'] = f'This is a repost! Originally posted at {repostTime.strftime("%m/%d/%Y %H:%M:%S")}'
+                response['messages'] = f'This is a repost! Originally posted at {repostTime.strftime("%d/%m/%Y %H:%M:%S")}'
                 response['repost'] = True
                 response['repostOriginalMesssageId'] = reposted[2]
     except Exception as e:
