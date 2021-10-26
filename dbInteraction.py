@@ -29,7 +29,7 @@ def doesPostExist(videoId, platform):
 
 	cur.execute("SELECT \"userId\", \"postDateTime\", \"discordMessageId\" FROM posts WHERE \"videoId\"=(%s) AND \"platform\"=(%s) ORDER BY \"postId\" DESC LIMIT 1", (videoId, platform))
 	result = cur.fetchone()
-	print("Heres the result.......:")
+	print("Heres the result:")
 	print(result)
 
 	cur.close()

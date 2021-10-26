@@ -1,4 +1,4 @@
-youtube_dl
+yt-dlp
 discord
 python-dotenv
 ffmpeg-python

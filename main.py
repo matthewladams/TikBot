@@ -2,6 +2,7 @@ from calculator import calculateBitrate, calculateBitrateAudioOnly
 import discord
 import os
 import ffmpeg
+import time
 from dotenv import load_dotenv 
 from downloader import download
 from compressionMessages import getCompressionMessage
@@ -94,7 +95,7 @@ async def handleMessage(message):
     
     downloadResponse = {'fileName':  '', 'duration':  0, 'messages': '', 'videoId': '', 'repost': False, 'repostOriginalMesssageId': ''}
 
-    retries = 3
+    retries = 4
     attemptcount = 1
     # Retry because TikTok breaks for no good reason sometimes
     while attemptcount <= retries:
@@ -102,6 +103,7 @@ async def handleMessage(message):
         messages = downloadResponse['messages']
         if(messages.startswith("Error") and attemptcount < retries):
             await message.channel.send('Download failed. Retrying!', delete_after=10)
+            time.sleep(attemptcount)
         else:
             break
         attemptcount += 1
