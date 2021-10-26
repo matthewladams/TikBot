@@ -1,11 +1,11 @@
 # TikBot
  A super simple Discord bot designed for helping you share TikToks without actually having to have your friends open TikTok.
  
- TikBot will download any TikTok (or other supported link in youtube-dl) linked in a Discord channel it is in, and post the video file directly. 
+ TikBot will download any TikTok (or other supported link in yt_dlp) linked in a Discord channel it is in, and post the video file directly. 
  In cases where the file is too large for Discord's free tier, the video will be compressed to fit first.
  
  # Installation & Usage
- Requirements: Python 2/3
+ Requirements: Python 3
  
  1. Set Discord access token into ```.env``` as ```TOKEN=$yourTokenGoesHere```
  
