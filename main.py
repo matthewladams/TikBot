@@ -112,6 +112,8 @@ async def handleMessage(message):
     duration = downloadResponse['duration']
     messages = downloadResponse['messages']
     repost = downloadResponse['repost']
+    ## TESTING ONLY
+    repost = False
     repostOriginalMesssageId = downloadResponse['repostOriginalMesssageId']
 
     print("Downloaded: " + fileName + " For User: " + str(message.author))
@@ -133,7 +135,8 @@ async def handleMessage(message):
     # Check file size, if it's small enough just send it!
     fileSize = os.stat(fileName).st_size
 
-    if(fileSize < 8000000):
+    # if(fileSize < 8000000):
+    if(False):
         with open(fileName, 'rb') as fp:
             await message.channel.send(file=discord.File(fp, str(fileName)))
             #Only save a post if we managed to send it
@@ -153,7 +156,7 @@ async def handleMessage(message):
         calcResult = calculateBitrate(duration)
 
         try:
-            ffmpeg.input(fileName).output("small_" + fileName, **{'b:v': str(calcResult.videoBitrate) + 'k', 'b:a': str(calcResult.audioBitrate) + 'k', 'fs': '7.9M', 'threads': '4'}).run()
+            ffmpeg.input(fileName).output("small_" + fileName, **{'b:v': str(calcResult.videoBitrate) + 'k', 'b:a': str(calcResult.audioBitrate) + 'k', 'fs': '7.9M', 'threads': '4', 'vf': 'subtitles='+downloadResponse['videoId']+'.en.srt'}).run()
             with open("small_" + fileName, 'rb') as fp:
                     await message.channel.send(file=discord.File(fp, str("small_" + fileName)))
                     if(calcResult.durationLimited):
