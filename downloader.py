@@ -4,7 +4,10 @@ from dbInteraction import savePost, doesPostExist
 def download(videoUrl):
     response = {'fileName':  '', 'duration':  0, 'messages': '', 'videoId': '', 'repost': False, 'repostOriginalMesssageId': ''}
     ydl = yt_dlp.YoutubeDL({'format_sort': ['+codec:h264'], 'outtmpl': '%(id)s.mp4', 'merge_output_format': 'mp4'})
-    yt_dlp.utils.std_headers['User-Agent'] =  'facebookexternalhit/1.1'
+
+    # Workaround for TikTok seemingly blocking yt-dlp after many usages from the same IP with defaults
+    if "tiktok" in videoUrl:
+        yt_dlp.utils.std_headers['User-Agent'] =  'facebookexternalhit/1.1'
 
     with ydl:
         try:
