@@ -103,7 +103,11 @@ async def handleMessage(message):
         messages = downloadResponse['messages']
         if(messages.startswith("Error") and attemptcount < retries):
             await message.channel.send('Download failed. Retrying!', delete_after=10)
-            time.sleep(attemptcount)
+            retryMultiplier = os.getenv('TIKBOT_RETRY_MULTI')
+            if(retryMultiplier != None):
+                time.sleep(int(retryMultiplier) * attemptcount)
+            else:
+                time.sleep(attemptcount)
         else:
             break
         attemptcount += 1
