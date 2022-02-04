@@ -27,6 +27,10 @@ class TestDownloader(unittest.TestCase):
         downloadResponse = download(url)
         self.assertEqual(downloadResponse["messages"], '')
 
+    def test_cursed_reddit(self):
+        url = "https://www.reddit.com/r/gayspiderbrothel/comments/siss7w/awooga/?utm_medium=android_app&utm_source=share"
+        downloadResponse = download(url)
+        self.assertEqual(downloadResponse["messages"], '')
 # TODO - how to safely test on github?
 # class TestInsertDb(unittest.TestCase):
 
