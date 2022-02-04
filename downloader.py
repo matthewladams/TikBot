@@ -1,4 +1,5 @@
 import yt_dlp
+import logging
 from dbInteraction import savePost, doesPostExist
 
 def download(videoUrl):
@@ -15,7 +16,8 @@ def download(videoUrl):
                 videoUrl,
                 download=True
             )
-        except:
+        except Exception as ex:
+            print(ex)
             response['messages'] = 'Error: Download Failed'
             return response
 
@@ -53,7 +55,7 @@ def download(videoUrl):
                 response['repostOriginalMesssageId'] = reposted[2]
     except Exception as e:
         # Don't die for repost detection
-        print(f"Exception trying to do repost detection: {e}")
+        logging.error(f"Exception trying to do repost detection: {e}")
 
     return response
 
