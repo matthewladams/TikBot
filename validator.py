@@ -1,4 +1,5 @@
 import re
+import os
 
 def extractUrl(inputString):
     response = {'url':  '', 'messages': ''}
@@ -18,7 +19,13 @@ def extractUrl(inputString):
 def isSupportedUrl(url):
     response = {'url':  '', 'supported': 'false', 'messages': ''}
     
-    supportedDomains = ['youtube', 'tiktok', 'instagram', 'reddit', 'redd.it']
+    envDomains = os.getenv('TIKBOT_AUTO_DOMAINS')
+
+    if(envDomains is None):
+        print("Using default supported domains list")
+        supportedDomains = ['youtube', 'tiktok', 'instagram', 'reddit', 'redd.it']
+    else:
+        supportedDomains = envDomains.split(" ")
 
     for domain in supportedDomains:
         if(domain in url):

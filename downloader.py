@@ -1,6 +1,10 @@
 import yt_dlp
 import logging
 from dbInteraction import savePost, doesPostExist
+import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
+import os
 
 def download(videoUrl):
     response = {'fileName':  '', 'duration':  0, 'messages': '', 'videoId': '', 'repost': False, 'repostOriginalMesssageId': ''}
@@ -49,8 +53,9 @@ def download(videoUrl):
             repostUserId = reposted[0]
             print(f"got repost user id {repostUserId}")
             repostTime = reposted[1]
+            repostTimeTimezone = datetime_from_utc_to_local(repostTime)
             if(repostUserId != ''):
-                response['messages'] = f'This is a repost! Originally posted at {repostTime.strftime("%d/%m/%Y %H:%M:%S")}'
+                response['messages'] = f'This is a repost! Originally posted at {repostTimeTimezone.strftime("%d/%m/%Y %H:%M:%S")}'
                 response['repost'] = True
                 response['repostOriginalMesssageId'] = reposted[2]
     except Exception as e:
@@ -66,3 +71,7 @@ def _list_from_options_callback(option, value, parser, append=True, delim=',', p
     setattr(
         parser.values, option.dest,
         current + value if append is True else value + current)
+
+def datetime_from_utc_to_local(utc_datetime: datetime):
+    timezone = os.getenv('TIKBOT_TIMEZONE')
+    return utc_datetime.astimezone(tz=ZoneInfo(timezone))
