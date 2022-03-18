@@ -1,4 +1,5 @@
 import re
+import os
 
 def extractUrl(inputString):
     response = {'url':  '', 'messages': ''}
@@ -16,15 +17,31 @@ def extractUrl(inputString):
     return response
 
 def isSupportedUrl(url):
-    response = {'url':  '', 'supported': 'false', 'messages': ''}
+    response = {'url':  '', 'supported': 'false', 'messages': '', 'silentMode': False}
     
-    supportedDomains = ['youtube', 'tiktok', 'instagram', 'reddit', 'redd.it']
+    envDomains = os.getenv('TIKBOT_AUTO_DOMAINS')
+
+    if(envDomains is None):
+        print("Using default supported domains list")
+        supportedDomains = ['youtube', 'tiktok', 'instagram', 'reddit', 'redd.it']
+    else:
+        supportedDomains = envDomains.split(" ")
 
     for domain in supportedDomains:
         if(domain in url):
             response['supported'] = 'true'
-            return response
     
+    silentDomains = os.getenv('TIKBOT_SILENT_DOMAINS')
+
+    if(silentDomains is not None):
+        silentDomains = silentDomains.split(" ")
+        for domain in silentDomains:
+            if(domain in url):
+                response['silentMode'] = True
+    
+    if(response['supported'] == 'true' or response['silentMode'] == True):
+        return response
+
     # We only reach here if the URL isn't supported
     response['messages'] = "Information: Supplied URL is not a supported domain. To force TikBot to attempt it anyway, include a '🤖' in your message."
     print(response['messages'])

@@ -80,10 +80,14 @@ async def handleMessage(message):
     if('🙅‍♂️' in message.content or '🙅‍♀️' in message.content):
         return
     
+    silentMode = False
+
     if('🤖' not in message.content):
         # Validate unless we've been reqeuested not to
         validateResponse = isSupportedUrl(url)
         messages = validateResponse['messages']
+        if(validateResponse['silentMode']):
+            silentMode = True
         if(messages.startswith("Error")):
             await message.channel.send('TikBot encountered an error validating the URL. Consider berating my human if this was not expected.\nMessage: ' + messages)
             return
@@ -91,7 +95,8 @@ async def handleMessage(message):
             # Unsupported URL, return silently without doing anything
             return
 
-    await message.channel.send('TikBot downloading video now!', delete_after=10)
+    if(not silentMode):
+        await message.channel.send('TikBot downloading video now!', delete_after=10)
     
     downloadResponse = {'fileName':  '', 'duration':  0, 'messages': '', 'videoId': '', 'repost': False, 'repostOriginalMesssageId': ''}
 
@@ -101,7 +106,7 @@ async def handleMessage(message):
     while attemptcount <= retries:
         downloadResponse = download(url)
         messages = downloadResponse['messages']
-        if(messages.startswith("Error") and attemptcount < retries):
+        if(messages.startswith("Error") and attemptcount < retries and not silentMode):
             await message.channel.send('Download failed. Retrying!', delete_after=10)
             retryMultiplier = os.getenv('TIKBOT_RETRY_MULTI')
             if(retryMultiplier != None):
@@ -120,10 +125,13 @@ async def handleMessage(message):
 
     print("Downloaded: " + fileName + " For User: " + str(message.author))
 
-    if(messages.startswith("Error")):
+    if(messages.startswith("Error") and not silentMode):
         await message.channel.send('TikBot has failed you. Consider berating my human if this was not expected.\nMessage: ' + messages)
         return
 
+    if(messages.startswith("Error") and silentMode):
+        return
+    
     if(repost == True):
         os.remove(fileName) # Don't keep the video
         try:
