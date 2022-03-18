@@ -2,4 +2,4 @@ yt-dlp
 discord
 python-dotenv
 ffmpeg-python
-psycopg2
+psycopg2-binary
