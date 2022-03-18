@@ -26,7 +26,6 @@ def savePost(userId, postId, platform, messageId):
 
 def doesPostExist(videoId, platform):
 	cur = conn.cursor()
-	cur.execute("SET timezone=+10")
 	cur.execute("SELECT \"userId\", \"postDateTime\", \"discordMessageId\" FROM posts WHERE \"videoId\"=(%s) AND \"platform\"=(%s) ORDER BY \"postId\" DESC LIMIT 1", (videoId, platform))
 	result = cur.fetchone()
 	print("Heres the result:")
@@ -34,4 +33,3 @@ def doesPostExist(videoId, platform):
 
 	cur.close()
 	return result
-
