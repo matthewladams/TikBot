@@ -6,7 +6,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import os
 
-def download(videoUrl):
+def download(videoUrl: str):
     response = {'fileName':  '', 'duration':  0, 'messages': '', 'videoId': '', 'repost': False, 'repostOriginalMesssageId': ''}
     ydl = yt_dlp.YoutubeDL({'format_sort': ['+codec:h264'], 'outtmpl': '%(id)s.mp4', 'merge_output_format': 'mp4'})
 

@@ -28,11 +28,22 @@ For example to add Twitter to the automatic set of posts
 
 ```TIKBOT_AUTO_DOMAINS=youtube tiktok instagram reddit redd.it twitter```
 
- ## Extra Config
- The bot is capable of detecing reposts if supplied with postgres database credentials. 
- Set ```DB_NAME, DB_HOST, DB_USER, DB_PASS, TIKBOT_TIMEZONE`` in ```.env```. Timezone is the IANA name
- 
- Only a single table is used, see ```maintenance/create_posts_table.sql``` for a create script for the table.
+## Extra Config
+### Repost Detection
+The bot is capable of detecing reposts if supplied with postgres database credentials. 
+Set ```DB_NAME, DB_HOST, DB_USER, DB_PASS, TIKBOT_TIMEZONE`` in ```.env```. Timezone is the IANA name
+
+Only a single table is used, see ```maintenance/create_posts_table.sql``` for a create script for the table.
+
+### Silent Mode
+For domains with a mix of supported and unsupported content (e.g. Twitter), you may want the bot to try to post items, but only send a message if it actually gets a video to post.
+Set the domains you want this behaviour on as a space separated list in the ```TIKBOT_SILENT_DOMAINS``` environment variable.
+
+For example to only post Twitter videos and have the bot not show anything for text tweets:
+
+```TIKBOT_SILENT_DOMAINS=twitter```
+
+Note that this will also suppress any other messages (aside from repost detection) for these domains as well. Errors will still be logged to the console however.
 
  # Notes
  Not recommended to be available as a public bot due to the bandwidth and processing requirements of downloading and encoding videos.
