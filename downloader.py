@@ -23,7 +23,7 @@ def download(videoUrl: str):
         req = requests.get(videoUrl, headers=headersObj)
         print("Resolved to " + req.url)
         videoUrl = req.url
-       # yt_dlp.utils.std_headers['User-Agent'] =  'facebookexternalhit/1.1'
+        yt_dlp.utils.std_headers['User-Agent'] =  'facebookexternalhit/1.1'
 
     with ydl:
         try:
