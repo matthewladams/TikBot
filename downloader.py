@@ -5,14 +5,25 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import os
+import requests
 
 def download(videoUrl: str):
     response = {'fileName':  '', 'duration':  0, 'messages': '', 'videoId': '', 'repost': False, 'repostOriginalMesssageId': ''}
     ydl = yt_dlp.YoutubeDL({'format_sort': ['+codec:h264'], 'outtmpl': '%(id)s.mp4', 'merge_output_format': 'mp4'})
 
     # Workaround for TikTok seemingly blocking yt-dlp after many usages from the same IP with defaults
-    if "tiktok" in videoUrl:
-        yt_dlp.utils.std_headers['User-Agent'] =  'facebookexternalhit/1.1'
+    if "vm.tiktok" in videoUrl or "vt.tiktok" in videoUrl:
+        print("Gonna try and resolve TikTok shortcut URL to get around a weird yt-dlp bug - https://github.com/yt-dlp/yt-dlp/issues/3776")
+        headersObj = requests.utils.default_headers()
+        headersObj.update(
+            {
+                'User-Agent': 'Mozilla/5.0'
+            }
+        )
+        req = requests.get(videoUrl, headers=headersObj)
+        print("Resolved to " + req.url)
+        videoUrl = req.url
+       # yt_dlp.utils.std_headers['User-Agent'] =  'facebookexternalhit/1.1'
 
     with ydl:
         try:
