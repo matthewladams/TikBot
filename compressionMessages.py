@@ -17,7 +17,7 @@ messages = [
     "_Veigar voice_ It's only a short video? Is that short joke?!",
     "Chrissy will wake up when she hears this one right?",
     "With how big this video is you're gonna get me in trouble...",
-    "Go wash your rice, your video will be with you in a momement.",
+    "Go wash your rice, your video will be with you in a moment.",
     "Today is $currentDay, which means that ~~Gandalf~~ I will get to ~~lick~~ serve your ~~graham cracker~~ video. It is my favourite activity",
     "Somebody once told me the world is gonna roll me. Making your video the sharpest tool in the shed.",
     "I'm leaving this TikTok in my compression algorithms for a week, or, until something interesting happens.",
