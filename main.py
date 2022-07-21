@@ -145,7 +145,17 @@ async def handleMessage(message):
     # Check file size, if it's small enough just send it!
     fileSize = os.stat(fileName).st_size
 
-    if(fileSize < 8000000):
+    # ...Unless it's not h264 and the downloader failed us (TikTok has developed a habit of saying a video is h264 in the API but serve a h265 encoded file)
+    probe = ffmpeg.probe(fileName)
+    video_streams = [stream for stream in probe["streams"] if stream["codec_type"] == "video"]
+
+    isUnsupportedCodec = False
+    for track in video_streams:
+        if(track["codec_name"] == "hevc"):
+            await message.channel.send("Video will not play inline without re-encoding, so I'm gonna do that for you :)", delete_after=180)
+            isUnsupportedCodec = True
+
+    if(fileSize < 8000000 and not isUnsupportedCodec):
         with open(fileName, 'rb') as fp:
             await message.channel.send(file=discord.File(fp, str(fileName)))
             #Only save a post if we managed to send it
@@ -159,13 +169,14 @@ async def handleMessage(message):
     else:
         # We need to compress the file below 8MB or discord will make a sad
         compressionMessage = getCompressionMessage()
-        await message.channel.send(compressionMessage)
+        if not isUnsupportedCodec:
+            await message.channel.send(compressionMessage, delete_after=180)
         print("Duration = " + str(duration))
         # Give us 7MB files with VBR encoding to allow for some overhead
         calcResult = calculateBitrate(duration)
 
         try:
-            ffmpeg.input(fileName).output("small_" + fileName, **{'b:v': str(calcResult.videoBitrate) + 'k', 'b:a': str(calcResult.audioBitrate) + 'k', 'fs': '7.9M', 'threads': '4'}).run()
+            ffmpeg.input(fileName).output("small_" + fileName, **{'b:v': str(calcResult.videoBitrate) + 'k', 'b:a': str(calcResult.audioBitrate) + 'k', 'fs': '7.9M',  'preset': 'superfast', 'threads': '2'}).run()
             with open("small_" + fileName, 'rb') as fp:
                     await message.channel.send(file=discord.File(fp, str("small_" + fileName)))
                     if(calcResult.durationLimited):
