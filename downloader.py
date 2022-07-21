@@ -44,7 +44,6 @@ def download(videoUrl: str):
     try:
         # TODO - get the platform for this not just be lazy
         reposted = doesPostExist(video['id'], 'MattIsLazy')
-        reposted = None #TODO DISABLE FOR TESTING ONLY
         # TODO use named accessors somehow
         if(reposted != None):
             print(f"trying repost detection with response {reposted}")
