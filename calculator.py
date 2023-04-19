@@ -14,7 +14,7 @@ def calculateBitrate(duration: int) -> CalculationResult:
     bitrateKilobits = result.videoBitrate
     # Calc video first
     if(duration != 0):
-        bitrateKilobits = (6700 * 8)/duration
+        bitrateKilobits = (22700 * 8)/duration
         result.videoBitrate = round(bitrateKilobits)
 
     # Don't ever drop to full potato
@@ -24,7 +24,7 @@ def calculateBitrate(duration: int) -> CalculationResult:
     
     # Now calculate audio based on our remaining bitrate  
     if(duration != 0):
-        remainingKiloBytes = 7700 - (result.videoBitrate/8) * duration
+        remainingKiloBytes = 23000 - (result.videoBitrate/8) * duration
         print("Bits remaining for audio= " + str(remainingKiloBytes))
         calcedAudioBitrate = (remainingKiloBytes*8)/duration
         roundedCalcedBitrate = round(calcedAudioBitrate)
@@ -48,7 +48,7 @@ def calculateBitrateAudioOnly(duration: int) -> CalculationResult:
 
     # Now calculate audio based on our remaining bitrate
     if(duration != 0):
-        calcedAudioBitrate = (7500 * 8)/duration
+        calcedAudioBitrate = (23700 * 8)/duration
         roundedCalcedBitrate = round(calcedAudioBitrate)
         # Don't set silly high or low
         if(roundedCalcedBitrate > 320):

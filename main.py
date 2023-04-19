@@ -155,7 +155,7 @@ async def handleMessage(message):
             await message.channel.send("Video will not play inline without re-encoding, so I'm gonna do that for you :)", delete_after=180)
             isUnsupportedCodec = True
 
-    if(fileSize < 8000000 and not isUnsupportedCodec):
+    if(fileSize < 24000000 and not isUnsupportedCodec):
         with open(fileName, 'rb') as fp:
             await message.channel.send(file=discord.File(fp, str(fileName)))
             #Only save a post if we managed to send it
@@ -172,11 +172,11 @@ async def handleMessage(message):
         if not isUnsupportedCodec:
             await message.channel.send(compressionMessage, delete_after=180)
         print("Duration = " + str(duration))
-        # Give us 7MB files with VBR encoding to allow for some overhead
+        # Give us 24MB files with VBR encoding to allow for some overhead
         calcResult = calculateBitrate(duration)
 
         try:
-            ffmpeg.input(fileName).output("small_" + fileName, **{'b:v': str(calcResult.videoBitrate) + 'k', 'b:a': str(calcResult.audioBitrate) + 'k', 'fs': '7.9M',  'preset': 'superfast', 'threads': '2'}).run()
+            ffmpeg.input(fileName).output("small_" + fileName, **{'b:v': str(calcResult.videoBitrate) + 'k', 'b:a': str(calcResult.audioBitrate) + 'k', 'fs': '23.9M',  'preset': 'superfast', 'threads': '2'}).run()
             with open("small_" + fileName, 'rb') as fp:
                     await message.channel.send(file=discord.File(fp, str("small_" + fileName)))
                     if(calcResult.durationLimited):
