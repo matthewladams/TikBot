@@ -21,6 +21,8 @@ def isSupportedUrl(url):
     
     envDomains = os.getenv('TIKBOT_AUTO_DOMAINS')
 
+    redditDomains = ['reddit', 'redd.it']
+
     if(envDomains is None):
         print("Using default supported domains list")
         supportedDomains = ['youtube', 'tiktok', 'instagram', 'reddit', 'redd.it']
@@ -31,6 +33,10 @@ def isSupportedUrl(url):
         if(domain in url):
             response['supported'] = 'true'
     
+    for domain in redditDomains:
+        if(domain in url):
+            response['messages'] = "Reddit is killing 3rd party apps and forcing subreddits open that closed in protest. Please consider spending your scrolling time elsewhere."
+
     silentDomains = os.getenv('TIKBOT_SILENT_DOMAINS')
 
     if(silentDomains is not None):

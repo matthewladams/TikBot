@@ -98,6 +98,9 @@ async def handleMessage(message):
     if(not silentMode):
         await message.channel.send('TikBot downloading video now!', delete_after=10)
     
+    if(not silentMode and messages.startswith("Reddit")):
+        await message.channel.send(messages)
+
     downloadResponse = {'fileName':  '', 'duration':  0, 'messages': '', 'videoId': '', 'repost': False, 'repostOriginalMesssageId': ''}
 
     retries = 4
