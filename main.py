@@ -12,7 +12,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 load_dotenv()
 
-client = discord.Client()
+intents = discord.Intents.default()
+intents.message_content = True
+
+client = discord.Client(intents=intents)
 
 async def handleMessage(message):
     # Ignore our own messages
