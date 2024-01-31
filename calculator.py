@@ -11,31 +11,27 @@ def calculateBitrate(duration: int) -> CalculationResult:
     result.audioBitrate = 64
     result.durationLimited = False
 
-    bitrateKilobits = result.videoBitrate
-    # Calc video first
-    if(duration != 0):
-        bitrateKilobits = (22700 * 8)/duration
+    # Total data budget in kilobits (23500 kilobytes * 8)
+    totalDataBudgetKilobits = 23500 * 8
+
+    # Calculate video bitrate first
+    if duration != 0:
+        bitrateKilobits = totalDataBudgetKilobits / duration
+        # Ensure bitrate is not below 200 kbps
+        if bitrateKilobits < 200:
+            result.durationLimited = True
+            bitrateKilobits = 200
         result.videoBitrate = round(bitrateKilobits)
 
-    # Don't ever drop to full potato
-    if(bitrateKilobits < 200):
-        result.durationLimited = True
-        bitrateKilobits = 200
-    
-    # Now calculate audio based on our remaining bitrate  
-    if(duration != 0):
-        remainingKiloBytes = 23000 - (result.videoBitrate/8) * duration
-        print("Bits remaining for audio= " + str(remainingKiloBytes))
-        calcedAudioBitrate = (remainingKiloBytes*8)/duration
-        roundedCalcedBitrate = round(calcedAudioBitrate)
-        # Don't set silly high or low
-        if(roundedCalcedBitrate > 320):
-            roundedCalcedBitrate = 320
-        if(roundedCalcedBitrate < 32):
-            roundedCalcedBitrate = 32
-        result.audioBitrate = roundedCalcedBitrate
+    # Calculate audio bitrate
+    if duration != 0:
+        # Remaining data for audio in kilobits
+        remainingDataKilobits = totalDataBudgetKilobits - (result.videoBitrate * duration)
+        calcedAudioBitrate = remainingDataKilobits / duration
+        # Ensure audio bitrate is within 32-320 kbps
+        calcedAudioBitrate = max(64, min(calcedAudioBitrate, 320))
+        result.audioBitrate = round(calcedAudioBitrate)
 
-    print("Bitrate Calcs: Duration=" + str(duration) + "     Video=" + str(result.videoBitrate) + "       Audio=" + str(result.audioBitrate))
     return result
 
 def calculateBitrateAudioOnly(duration: int) -> CalculationResult:
