@@ -3,6 +3,7 @@ import discord
 import os
 import ffmpeg
 import time
+import traceback
 from dotenv import load_dotenv 
 from downloader import download
 from compressionMessages import getCompressionMessage
@@ -17,200 +18,323 @@ intents.message_content = True
 
 client = discord.Client(intents=intents)
 
-# Get the file size limit from environment variable or use default
 def get_file_size_limit():
     try:
-        # Convert MB to bytes (1MB = 1,000,000 bytes)
-        size_mb = float(os.getenv('TIKBOT_FILE_SIZE_LIMIT_MB', '8'))
+        size_mb = float(os.getenv('TIKBOT_FILE_SIZE_LIMIT', '8'))
         return size_mb * 1_000_000
     except ValueError:
-        # If the environment variable is invalid, return 8MB
         return 8_000_000
 
-async def handleMessage(message):
-    # Ignore our own messages
-    if message.author == client.user:
-        return
+async def send_error_message(channel, error_message, exception=None):
+    """Sends a user-friendly error message to the Discord channel"""
+    base_message = f"😅 Oops! {error_message}"
+    if exception:
+        error_details = str(exception).split('\n')[0]  # Get first line of error
+        base_message += f"\nError details: {error_details}"
+    try:
+        await channel.send(base_message)
+    except Exception as e:
+        print(f"Failed to send error message: {e}")
 
-    fileName = ""
-    duration = 0
-    messages = ""
-
-    # Do special things in DMs
-    if(type(message.channel) is discord.DMChannel):
-        if message.content.startswith('🎵'):
-            url = message.content.replace('🎵', '')
-            await message.author.send('Attempting to turn this into a MP3 for ya.')
-
-            downloadResponse = download(url)
-            fileName = downloadResponse['fileName']
-            duration = downloadResponse['duration']
-            messages = downloadResponse['messages']
-
-            print("Downloaded: " + fileName + " For User: " + str(message.author))
-
-            if(messages.startswith("Error")):
-                await message.author.send('TikBot has failed you. Consider berating my human if this was not expected.\nMessage: ' + messages)
-                return
-
-            audioFilename = "audio_" + fileName + ".mp3"
-            calcResult = calculateBitrateAudioOnly(duration)
-            try:
-                ffmpeg.input(fileName).output(audioFilename, **{'b:a': str(calcResult.audioBitrate) + 'k', 'threads': '1'}).run()
-                with open(audioFilename, 'rb') as fp:
-                    await message.author.send(file=discord.File(fp, str(audioFilename)))
-            except Exception as e:
-                print(f"Exception sending audio only DM: {e}")
-                await message.channel.send('Something about your link defeated my compression mechanism! Link is probably too long. Exception Details: ' + str(e))
-
-            # Delete the compressed and original file
-            os.remove(fileName)
-            os.remove(audioFilename)
-        else:
-            await message.author.send('👋')
-
-        return
-
-    # Only do anything in TikTok channels
-    if(not message.channel.name.startswith("tik-tok")):
-        return
-
-    # Be polite!
-    if message.content.startswith('$hello'):
-        await message.channel.send('Hello!')
-
-    # Extract and validate the request 
-    extractResponse = extractUrl(message.content)
-    url = extractResponse["url"]
-    messages = extractResponse['messages']
-    if(messages.startswith("Error")):
-        await message.channel.send('TikBot encountered an error determing a URL. Consider berating my human if this was not expected.\nMessage: ' + messages)
-        return
-
-    print("Got URL: " + url + " For User: " + str(message.author))
-
-    # Allow to force not downloading
-    if('🙅‍♂️' in message.content or '🙅‍♀️' in message.content):
-        return
-    
-    silentMode = False
-
-    if('🤖' not in message.content):
-        # Validate unless we've been reqeuested not to
-        validateResponse = isSupportedUrl(url)
-        messages = validateResponse['messages']
-        if(validateResponse['silentMode']):
-            silentMode = True
-        if(messages.startswith("Error")):
-            await message.channel.send('TikBot encountered an error validating the URL. Consider berating my human if this was not expected.\nMessage: ' + messages)
-            return
-        if(validateResponse['supported'] == 'false'):
-            # Unsupported URL, return silently without doing anything
-            return
-
-    if(not silentMode):
-        await message.channel.send('TikBot downloading video now!', delete_after=10)
-    
-    if(not silentMode and messages.startswith("Reddit")):
-        await message.channel.send(messages)
-
-    downloadResponse = {'fileName':  '', 'duration':  0, 'messages': '', 'videoId': '', 'repost': False, 'repostOriginalMesssageId': ''}
-
-    retries = 4
-    attemptcount = 1
-    # Retry because TikTok breaks for no good reason sometimes
-    while attemptcount <= retries:
+async def handle_audio_conversion(message, url):
+    """Handles audio conversion requests in DMs"""
+    try:
+        await message.author.send('Attempting to turn this into a MP3 for ya.')
+        
         downloadResponse = download(url)
+        fileName = downloadResponse['fileName']
+        duration = downloadResponse['duration']
         messages = downloadResponse['messages']
-        if(messages.startswith("Error") and attemptcount < retries and not silentMode):
-            await message.channel.send('Download failed. Retrying!', delete_after=10)
-            retryMultiplier = os.getenv('TIKBOT_RETRY_MULTI')
-            if(retryMultiplier != None):
-                time.sleep(int(retryMultiplier) * attemptcount)
-            else:
-                time.sleep(attemptcount)
-        else:
-            break
-        attemptcount += 1
 
-    fileName = downloadResponse['fileName']
-    duration = downloadResponse['duration']
-    messages = downloadResponse['messages']
-    repost = downloadResponse['repost']
-    repostOriginalMesssageId = downloadResponse['repostOriginalMesssageId']
+        print(f"Downloaded: {fileName} For User: {message.author}")
 
-    print("Downloaded: " + fileName + " For User: " + str(message.author))
+        if messages.startswith("Error"):
+            await send_error_message(message.author, "Failed to download the audio.", messages)
+            return
 
-    if(messages.startswith("Error") and not silentMode):
-        await message.channel.send('TikBot has failed you. Consider berating my human if this was not expected.\nMessage: ' + messages)
-        return
-
-    if(messages.startswith("Error") and silentMode):
-        return
-    
-    if(repost == True):
-        os.remove(fileName) # Don't keep the video
+        audioFilename = f"audio_{fileName}.mp3"
+        calcResult = calculateBitrateAudioOnly(duration)
+        
         try:
-            originalPost = await message.channel.fetch_message(repostOriginalMesssageId)
-            await message.channel.send(messages, reference=originalPost)
-            return
-        except:
-            await message.channel.send(messages + ' (Failed to find original post to reply to)')
-            return
+            ffmpeg.input(fileName).output(audioFilename, **{
+                'b:a': f"{calcResult.audioBitrate}k", 
+                'threads': '1'
+            }).run()
+            
+            with open(audioFilename, 'rb') as fp:
+                await message.author.send(file=discord.File(fp, str(audioFilename)))
+        except Exception as e:
+            await send_error_message(
+                message.author,
+                "Failed to convert or send the audio file.",
+                e
+            )
+        finally:
+            # Clean up files if they exist
+            for file in [fileName, audioFilename]:
+                if os.path.exists(file):
+                    os.remove(file)
+                    
+    except Exception as e:
+        await send_error_message(
+            message.author,
+            "Something unexpected happened while processing your audio request.",
+            e
+        )
 
-    # Check file size, if it's small enough just send it!
-    fileSize = os.stat(fileName).st_size
-    file_size_limit = get_file_size_limit()
+async def process_video(message, fileName, duration, file_size_limit, downloadResponse):
+    """Processes and sends video files"""
+    try:
+        fileSize = os.stat(fileName).st_size
+        
+        # Check for unsupported codec
+        probe = ffmpeg.probe(fileName)
+        video_streams = [stream for stream in probe["streams"] if stream["codec_type"] == "video"]
+        
+        isUnsupportedCodec = any(track["codec_name"] == "hevc" for track in video_streams)
+        
+        if isUnsupportedCodec:
+            await message.channel.send(
+                "Video will not play inline without re-encoding, so I'm gonna do that for you :)", 
+                delete_after=180
+            )
 
-    # ...Unless it's not h264 and the downloader failed us (TikTok has developed a habit of saying a video is h264 in the API but serve a h265 encoded file)
-    probe = ffmpeg.probe(fileName)
-    video_streams = [stream for stream in probe["streams"] if stream["codec_type"] == "video"]
+        if fileSize < file_size_limit and not isUnsupportedCodec:
+            await send_original_video(message, fileName, downloadResponse)
+        else:
+            await send_compressed_video(message, fileName, duration, file_size_limit, downloadResponse, isUnsupportedCodec)
+            
+    except Exception as e:
+        await send_error_message(
+            message.channel,
+            "Failed to process the video file.",
+            e
+        )
+        raise  # Re-raise to handle cleanup in the caller
 
-    isUnsupportedCodec = False
-    for track in video_streams:
-        if(track["codec_name"] == "hevc"):
-            await message.channel.send("Video will not play inline without re-encoding, so I'm gonna do that for you :)", delete_after=180)
-            isUnsupportedCodec = True
-
-    if(fileSize < file_size_limit and not isUnsupportedCodec):
+async def send_original_video(message, fileName, downloadResponse):
+    """Sends the original video file"""
+    try:
         with open(fileName, 'rb') as fp:
             await message.channel.send(file=discord.File(fp, str(fileName)))
-            #Only save a post if we managed to send it
             try:
                 savePost(message.author.name, downloadResponse['videoId'], 'MattIsLazy', message.id)
             except Exception as e:
-                print(f"Exception saving post details: {e}")
+                print(f"Warning: Failed to save post details: {e}")
+    except Exception as e:
+        await send_error_message(
+            message.channel,
+            "Failed to send the original video.",
+            e
+        )
+        raise
 
-        os.remove(fileName)
-
-    else:
-        # We need to compress the file below the size limit or discord will make a sad
-        compressionMessage = getCompressionMessage()
+async def send_compressed_video(message, fileName, duration, file_size_limit, downloadResponse, isUnsupportedCodec):
+    """Compresses and sends the video file"""
+    try:
         if not isUnsupportedCodec:
-            await message.channel.send(compressionMessage, delete_after=180)
-        print("Duration = " + str(duration))
-        # Give us a slightly smaller target to allow for some overhead
-        compression_target = (file_size_limit / 1_000_000) - 0.1  # Convert to MB and subtract 0.1MB for safety
+            await message.channel.send(getCompressionMessage(), delete_after=180)
+        
+        print(f"Duration = {duration}")
+        compression_target = (file_size_limit / 1_000_000) - 0.1
         calcResult = calculateBitrate(duration)
-
+        compressed_filename = f"small_{fileName}"
+        
         try:
-            ffmpeg.input(fileName).output("small_" + fileName, **{'b:v': str(calcResult.videoBitrate) + 'k', 'b:a': str(calcResult.audioBitrate) + 'k', 'fs': f'{compression_target}M',  'preset': 'superfast', 'threads': '2'}).run()
-            with open("small_" + fileName, 'rb') as fp:
-                    await message.channel.send(file=discord.File(fp, str("small_" + fileName)))
-                    if(calcResult.durationLimited):
-                        await message.channel.send('Video duration was limited to keep quality above total potato.')
-                    try:
-                        savePost(message.author.name, downloadResponse['videoId'], 'MattIsLazy', message.id)
-                    except Exception as e:
-                        print(f"Exception saving post details: {e}")
+            ffmpeg.input(fileName).output(
+                compressed_filename,
+                **{
+                    'b:v': f"{calcResult.videoBitrate}k",
+                    'b:a': f"{calcResult.audioBitrate}k",
+                    'fs': f'{compression_target}M',
+                    'preset': 'superfast',
+                    'threads': '2'
+                }
+            ).run()
+            
+            with open(compressed_filename, 'rb') as fp:
+                await message.channel.send(file=discord.File(fp, str(compressed_filename)))
+                
+                if calcResult.durationLimited:
+                    await message.channel.send('Video duration was limited to keep quality above total potato.')
+                
+                try:
+                    savePost(message.author.name, downloadResponse['videoId'], 'MattIsLazy', message.id)
+                except Exception as e:
+                    print(f"Warning: Failed to save post details: {e}")
+                    
         except Exception as e:
-            print(f"Exception posting compressed file: {e}")
-            await message.channel.send('Something about your link defeated my compression mechanism! Video is probably too long')
-            return # Do not delete these so we can see what was wrong with them later
+            await send_error_message(
+                message.channel,
+                "Failed to compress or send the video. It might be too long or complex.",
+                e
+            )
+            raise
+            
+    except Exception as e:
+        await send_error_message(
+            message.channel,
+            "Failed to process the compressed video.",
+            e
+        )
+        raise
 
-        # Delete the compressed and original file
-        os.remove(fileName)
-        os.remove("small_" + fileName)
+async def handleMessage(message):
+    """Main message handler with comprehensive error handling"""
+    try:
+        if message.author == client.user:
+            return
+
+        # Handle DM messages
+        if isinstance(message.channel, discord.DMChannel):
+            if message.content.startswith('🎵'):
+                url = message.content.replace('🎵', '')
+                await handle_audio_conversion(message, url)
+            else:
+                await message.author.send('👋')
+            return
+
+        # Only process messages in TikTok channels
+        if not message.channel.name.startswith("tik-tok"):
+            return
+
+        # Handle hello command
+        if message.content.startswith('$hello'):
+            await message.channel.send('Hello!')
+            return
+
+        # Extract and validate URL
+        try:
+            extractResponse = extractUrl(message.content)
+            url = extractResponse["url"]
+            messages = extractResponse['messages']
+            
+            if messages.startswith("Error"):
+                await send_error_message(
+                    message.channel,
+                    "Failed to extract a valid URL from your message.",
+                    messages
+                )
+                return
+        except Exception as e:
+            await send_error_message(
+                message.channel,
+                "Failed to process the URL from your message.",
+                e
+            )
+            return
+
+        print(f"Got URL: {url} For User: {message.author}")
+
+        # Skip if no download is requested
+        if '🙅‍♂️' in message.content or '🙅‍♀️' in message.content:
+            return
+
+        silentMode = False
+
+        # Validate URL unless bypassed
+        if '🤖' not in message.content:
+            try:
+                validateResponse = isSupportedUrl(url)
+                messages = validateResponse['messages']
+                silentMode = validateResponse['silentMode']
+                
+                if messages.startswith("Error"):
+                    await send_error_message(
+                        message.channel,
+                        "Failed to validate the URL.",
+                        messages
+                    )
+                    return
+                    
+                if validateResponse['supported'] == 'false':
+                    return
+            except Exception as e:
+                await send_error_message(
+                    message.channel,
+                    "Failed to validate the URL.",
+                    e
+                )
+                return
+
+        if not silentMode:
+            await message.channel.send('TikBot downloading video now!', delete_after=10)
+            if messages.startswith("Reddit"):
+                await message.channel.send(messages)
+
+        # Download with retries
+        downloadResponse = {'fileName': '', 'duration': 0, 'messages': '', 'videoId': '', 'repost': False, 'repostOriginalMesssageId': ''}
+        
+        retries = 4
+        attemptcount = 1
+        
+        while attemptcount <= retries:
+            try:
+                downloadResponse = download(url)
+                messages = downloadResponse['messages']
+                
+                if messages.startswith("Error") and attemptcount < retries and not silentMode:
+                    await message.channel.send('Download failed. Retrying!', delete_after=10)
+                    retryMultiplier = os.getenv('TIKBOT_RETRY_MULTI')
+                    time.sleep(int(retryMultiplier or '1') * attemptcount)
+                else:
+                    break
+            except Exception as e:
+                if attemptcount == retries:
+                    await send_error_message(
+                        message.channel,
+                        "Failed to download after multiple attempts.",
+                        e
+                    )
+                    return
+            attemptcount += 1
+
+        fileName = downloadResponse['fileName']
+        duration = downloadResponse['duration']
+        messages = downloadResponse['messages']
+        repost = downloadResponse['repost']
+        repostOriginalMesssageId = downloadResponse['repostOriginalMesssageId']
+
+        print(f"Downloaded: {fileName} For User: {message.author}")
+
+        if messages.startswith("Error"):
+            if not silentMode:
+                await send_error_message(
+                    message.channel,
+                    "Failed to download the content.",
+                    messages
+                )
+            return
+
+        # Handle reposts
+        if repost:
+            try:
+                if os.path.exists(fileName):
+                    os.remove(fileName)
+                    
+                originalPost = await message.channel.fetch_message(repostOriginalMesssageId)
+                await message.channel.send(messages, reference=originalPost)
+            except Exception as e:
+                await message.channel.send(f'{messages} (Failed to find original post to reply to)')
+            return
+
+        # Process the video
+        try:
+            await process_video(message, fileName, duration, get_file_size_limit(), downloadResponse)
+        finally:
+            # Clean up files
+            for file in [fileName, f"small_{fileName}"]:
+                if os.path.exists(file):
+                    os.remove(file)
+
+    except Exception as e:
+        error_traceback = traceback.format_exc()
+        print(f"Unexpected error in handleMessage: {error_traceback}")
+        await send_error_message(
+            message.channel or message.author,
+            "Something unexpected happened while processing your request.",
+            e
+        )
 
 @client.event
 async def on_ready():
