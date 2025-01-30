@@ -17,6 +17,16 @@ intents.message_content = True
 
 client = discord.Client(intents=intents)
 
+# Get the file size limit from environment variable or use default
+def get_file_size_limit():
+    try:
+        # Convert MB to bytes (1MB = 1,000,000 bytes)
+        size_mb = float(os.getenv('TIKBOT_FILE_SIZE_LIMIT_MB', '8'))
+        return size_mb * 1_000_000
+    except ValueError:
+        # If the environment variable is invalid, return 8MB
+        return 8_000_000
+
 async def handleMessage(message):
     # Ignore our own messages
     if message.author == client.user:
@@ -150,6 +160,7 @@ async def handleMessage(message):
 
     # Check file size, if it's small enough just send it!
     fileSize = os.stat(fileName).st_size
+    file_size_limit = get_file_size_limit()
 
     # ...Unless it's not h264 and the downloader failed us (TikTok has developed a habit of saying a video is h264 in the API but serve a h265 encoded file)
     probe = ffmpeg.probe(fileName)
@@ -161,7 +172,7 @@ async def handleMessage(message):
             await message.channel.send("Video will not play inline without re-encoding, so I'm gonna do that for you :)", delete_after=180)
             isUnsupportedCodec = True
 
-    if(fileSize < 24000000 and not isUnsupportedCodec):
+    if(fileSize < file_size_limit and not isUnsupportedCodec):
         with open(fileName, 'rb') as fp:
             await message.channel.send(file=discord.File(fp, str(fileName)))
             #Only save a post if we managed to send it
@@ -173,16 +184,17 @@ async def handleMessage(message):
         os.remove(fileName)
 
     else:
-        # We need to compress the file below 8MB or discord will make a sad
+        # We need to compress the file below the size limit or discord will make a sad
         compressionMessage = getCompressionMessage()
         if not isUnsupportedCodec:
             await message.channel.send(compressionMessage, delete_after=180)
         print("Duration = " + str(duration))
-        # Give us 24MB files with VBR encoding to allow for some overhead
+        # Give us a slightly smaller target to allow for some overhead
+        compression_target = (file_size_limit / 1_000_000) - 0.1  # Convert to MB and subtract 0.1MB for safety
         calcResult = calculateBitrate(duration)
 
         try:
-            ffmpeg.input(fileName).output("small_" + fileName, **{'b:v': str(calcResult.videoBitrate) + 'k', 'b:a': str(calcResult.audioBitrate) + 'k', 'fs': '23.9M',  'preset': 'superfast', 'threads': '2'}).run()
+            ffmpeg.input(fileName).output("small_" + fileName, **{'b:v': str(calcResult.videoBitrate) + 'k', 'b:a': str(calcResult.audioBitrate) + 'k', 'fs': f'{compression_target}M',  'preset': 'superfast', 'threads': '2'}).run()
             with open("small_" + fileName, 'rb') as fp:
                     await message.channel.send(file=discord.File(fp, str("small_" + fileName)))
                     if(calcResult.durationLimited):
