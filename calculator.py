@@ -11,8 +11,8 @@ def calculateBitrate(duration: int) -> CalculationResult:
     result.audioBitrate = 64
     result.durationLimited = False
 
-    # Total data budget in kilobits (23500 kilobytes * 8)
-    totalDataBudgetKilobits = 23500 * 8
+    # Total data budget in kilobits (8000 kilobytes * 8)
+    totalDataBudgetKilobits = 8000 * 8
 
     # Calculate video bitrate first
     if duration != 0:
