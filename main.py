@@ -136,7 +136,6 @@ async def send_compressed_video(message, fileName, duration, file_size_limit, do
             await message.channel.send(getCompressionMessage(), delete_after=180)
         
         print(f"Duration = {duration}")
-        # Add a small buffer to the compression target to prevent cutoffs
         compression_target = (file_size_limit / 1_000_000) - 1
         calcResult = calculateBitrate(duration)
         compressed_filename = f"small_{fileName}"
@@ -149,7 +148,7 @@ async def send_compressed_video(message, fileName, duration, file_size_limit, do
                     'b:v': f"{calcResult.videoBitrate}k",
                     'b:a': f"{calcResult.audioBitrate}k",
                     'fs': f'{compression_target}M',
-                    'preset': 'superfast',
+                    'preset': 'veryfast',
                     'threads': '2',
                     'maxrate': f"{calcResult.videoBitrate * 1.5}k",  # Allow some bitrate spikes
                     'bufsize': f"{calcResult.videoBitrate * 2}k",    # Increase buffer size
@@ -157,6 +156,15 @@ async def send_compressed_video(message, fileName, duration, file_size_limit, do
                     'avoid_negative_ts': 'make_zero'                # Prevent timestamp issues
                 }
             ).run()
+            
+            original_duration = float(ffmpeg.probe(fileName)['streams'][0]['duration'])
+            compressed_duration = float(ffmpeg.probe(compressed_filename)['streams'][0]['duration'])
+            
+            if compressed_duration < original_duration:
+                await message.channel.send(
+                    f"⚠️ Warning: Video was truncated from {original_duration:.1f}s to {compressed_duration:.1f}s to maintain quality within file size limits.",
+                    delete_after=180
+                )
             
             with open(compressed_filename, 'rb') as fp:
                 await message.channel.send(file=discord.File(fp, str(compressed_filename)))
