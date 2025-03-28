@@ -136,11 +136,13 @@ async def send_compressed_video(message, fileName, duration, file_size_limit, do
             await message.channel.send(getCompressionMessage(), delete_after=180)
         
         print(f"Duration = {duration}")
-        compression_target = (file_size_limit / 1_000_000) - 0.1
+        # Add a small buffer to the compression target to prevent cutoffs
+        compression_target = (file_size_limit / 1_000_000) - 1
         calcResult = calculateBitrate(duration)
         compressed_filename = f"small_{fileName}"
         
         try:
+            # Add more robust ffmpeg settings to prevent cutoffs
             ffmpeg.input(fileName).output(
                 compressed_filename,
                 **{
@@ -148,7 +150,11 @@ async def send_compressed_video(message, fileName, duration, file_size_limit, do
                     'b:a': f"{calcResult.audioBitrate}k",
                     'fs': f'{compression_target}M',
                     'preset': 'superfast',
-                    'threads': '2'
+                    'threads': '2',
+                    'maxrate': f"{calcResult.videoBitrate * 1.5}k",  # Allow some bitrate spikes
+                    'bufsize': f"{calcResult.videoBitrate * 2}k",    # Increase buffer size
+                    'movflags': '+faststart',                        # Optimize for streaming
+                    'avoid_negative_ts': 'make_zero'                # Prevent timestamp issues
                 }
             ).run()
             
