@@ -137,24 +137,26 @@ async def send_compressed_video(message, fileName, duration, file_size_limit, do
         
         print(f"Duration = {duration}")
         calcResult = calculateBitrate(duration)
-        compressed_filename = f"small_{fileName}"
-        
+        compressed_filename = f"small_{os.path.splitext(fileName)[0]}.mp4"
+
         try:
             # Adjust FFmpeg settings for better control
             ffmpeg.input(fileName).output(
                 compressed_filename,
                 **{
+                    'c:v': 'libx265',              # H.265 codec for better compression
                     'b:v': f"{calcResult.videoBitrate}k",
+                    'maxrate': f"{calcResult.videoBitrate}k",  # Enforce maximum bitrate
+                    'c:a': 'aac',                  # AAC is widely supported for audio
                     'b:a': f"{calcResult.audioBitrate}k",
-                    'fs': f"{file_size_limit}b",  # Set file size limit
-                    'preset': 'fast',
-                    'threads': '2',
-                    'maxrate': f"{calcResult.videoBitrate * 1}k",  # Allow some bitrate spikes
-                    'bufsize': f"{calcResult.videoBitrate * 2}k",    # Increase buffer size
-                    'movflags': '+faststart',                        # Optimize for streaming
-                    'avoid_negative_ts': 'make_zero'                # Prevent timestamp issues
+                    'bufsize': f"{2 * calcResult.videoBitrate}k",
+                    'vf': 'scale=-2:720',          # Scale to 720p while maintaining aspect ratio
+                    'preset': 'fast',            # Balance between speed and compression
+                    'fs': int(file_size_limit),    # Hard cap file length
+                    'f': 'mp4',                    # Container format for H.265
+                    't': calcResult.maxDuration    # Limit encoding to the maximum duration
                 }
-            ).run()
+            ).run(overwrite_output=True)
             
             # Check file size after compression
             compressed_file_size = os.stat(compressed_filename).st_size
@@ -164,12 +166,21 @@ async def send_compressed_video(message, fileName, duration, file_size_limit, do
                 )
                 return
             
-            original_duration = float(ffmpeg.probe(fileName)['streams'][0]['duration'])
-            compressed_duration = float(ffmpeg.probe(compressed_filename)['streams'][0]['duration'])
+            original_probe = ffmpeg.probe(fileName)
+            compressed_probe = ffmpeg.probe(compressed_filename)
+
+            original_duration = float(original_probe['streams'][0].get('duration', 0))
+            compressed_duration = float(compressed_probe['streams'][0].get('duration', 0))
             
-            if compressed_duration < original_duration:
+            if compressed_duration < original_duration and compressed_duration > 1:
+                # Check if the difference is greater than 1 second or 5% of the original duration
+                if (original_duration - compressed_duration) > max(1, 0.05 * original_duration):
+                    await message.channel.send(
+                        f"⚠️ Warning: Video was truncated from {original_duration:.1f}s to {compressed_duration:.1f}s to maintain quality within file size limits."
+                    )
+            elif(calcResult.durationLimited):
                 await message.channel.send(
-                    f"⚠️ Warning: Video was truncated from {original_duration:.1f}s to {compressed_duration:.1f}s to maintain quality within file size limits."
+                    f"⚠️ Warning: Video was truncated to maintain quality within file size limits."
                 )
             
             with open(compressed_filename, 'rb') as fp:

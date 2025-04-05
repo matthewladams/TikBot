@@ -2,30 +2,33 @@ class CalculationResult:
     videoBitrate: int
     audioBitrate: int
     durationLimited: bool
+    maxDuration: int
 
 def calculateBitrate(duration: int) -> CalculationResult:
     result = CalculationResult()
 
     # Set defaults
-    result.videoBitrate = 800
-    result.audioBitrate = 64
+    result.videoBitrate = 1500
+    result.audioBitrate = 96
     result.durationLimited = False
+    result.maxDuration = duration  # Default to the input duration
 
     # Total data budget in kilobits (7.5 MB * 8 bits per byte / 1000 to convert to kilobits)
-    totalDataBudgetKilobits = (7.5 * 1024 * 1024 * 8) / 1000
+    totalDataBudgetKilobits = (7 * 1024 * 1024 * 8) / 1000
 
     if duration != 0:
         # Calculate maximum allowable total bitrate
         maxTotalBitrate = totalDataBudgetKilobits / duration
 
         # Calculate minimum acceptable bitrate
-        minTotalBitrate = 150 + 32  # Minimum video + minimum audio
+        minTotalBitrate = 300 + 64  # Minimum video + minimum audio
 
         # Check if we're duration limited
         if maxTotalBitrate < minTotalBitrate:
-            result.videoBitrate = 150
-            result.audioBitrate = 32
+            result.videoBitrate = 300
+            result.audioBitrate = 64
             result.durationLimited = True
+            result.maxDuration = int(totalDataBudgetKilobits / minTotalBitrate)
             return result
 
         # Reserve 10% of the total bitrate for audio
