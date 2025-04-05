@@ -52,8 +52,8 @@ class TestCalculator(unittest.TestCase):
         """Test calculateBitrate when duration is too long for quality"""
         duration = 10000  # Very long duration
         result = calculateBitrate(duration)
-        self.assertEqual(result.videoBitrate, 150)  # Minimum video bitrate
-        self.assertGreaterEqual(result.audioBitrate, 32)  # Minimum audio bitrate
+        self.assertEqual(result.videoBitrate, 300)  # Minimum video bitrate
+        self.assertGreaterEqual(result.audioBitrate, 64)  # Minimum audio bitrate
         self.assertLessEqual(result.audioBitrate, 320)  # Maximum audio bitrate
         self.assertTrue(result.durationLimited)
 
