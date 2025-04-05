@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 import os
 import requests
 
-def download(videoUrl: str):
+def download(videoUrl: str, detect_repost: bool = True):
     response = {'fileName':  '', 'duration':  0, 'messages': '', 'videoId': '', 'repost': False, 'repostOriginalMesssageId': ''}
     ydl = yt_dlp.YoutubeDL({'format_sort': ['+codec:h264'], 'outtmpl': '%(id)s.mp4', 'merge_output_format': 'mp4'})
 
@@ -41,23 +41,23 @@ def download(videoUrl: str):
     response['fileName'] = video['id'] + ".mp4"
     response['videoId'] = video['id']
 
-    try:
-        # TODO - get the platform for this not just be lazy
-        reposted = doesPostExist(video['id'], 'MattIsLazy')
-        # TODO use named accessors somehow
-        if(reposted != None):
-            print(f"trying repost detection with response {reposted}")
-            repostUserId = reposted[0]
-            print(f"got repost user id {repostUserId}")
-            repostTime = reposted[1]
-            repostTimeTimezone = datetime_from_utc_to_local(repostTime)
-            if(repostUserId != ''):
-                response['messages'] = f'This is a repost! Originally posted at {repostTimeTimezone.strftime("%d/%m/%Y %H:%M:%S")}'
-                response['repost'] = True
-                response['repostOriginalMesssageId'] = reposted[2]
-    except Exception as e:
-        # Don't die for repost detection
-        logging.error(f"Exception trying to do repost detection: {e}")
+    if detect_repost:
+        try:
+            # TODO - get the platform for this not just be lazy
+            reposted = doesPostExist(video['id'], 'MattIsLazy')
+            if reposted is not None:
+                print(f"trying repost detection with response {reposted}")
+                repostUserId = reposted[0]
+                print(f"got repost user id {repostUserId}")
+                repostTime = reposted[1]
+                repostTimeTimezone = datetime_from_utc_to_local(repostTime)
+                if repostUserId != '':
+                    response['messages'] = f'This is a repost! Originally posted at {repostTimeTimezone.strftime("%d/%m/%Y %H:%M:%S")}'
+                    response['repost'] = True
+                    response['repostOriginalMesssageId'] = reposted[2]
+        except Exception as e:
+            # Don't die for repost detection
+            logging.error(f"Exception trying to do repost detection: {e}")
 
     return response
 

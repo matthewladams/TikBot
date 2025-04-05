@@ -136,34 +136,40 @@ async def send_compressed_video(message, fileName, duration, file_size_limit, do
             await message.channel.send(getCompressionMessage(), delete_after=180)
         
         print(f"Duration = {duration}")
-        compression_target = (file_size_limit / 1_000_000) - 1
         calcResult = calculateBitrate(duration)
         compressed_filename = f"small_{fileName}"
         
         try:
-            # Add more robust ffmpeg settings to prevent cutoffs
+            # Adjust FFmpeg settings for better control
             ffmpeg.input(fileName).output(
                 compressed_filename,
                 **{
                     'b:v': f"{calcResult.videoBitrate}k",
                     'b:a': f"{calcResult.audioBitrate}k",
-                    'fs': f'{compression_target}M',
-                    'preset': 'veryfast',
+                    'fs': f"{file_size_limit}b",  # Set file size limit
+                    'preset': 'fast',
                     'threads': '2',
-                    'maxrate': f"{calcResult.videoBitrate * 1.5}k",  # Allow some bitrate spikes
+                    'maxrate': f"{calcResult.videoBitrate * 1}k",  # Allow some bitrate spikes
                     'bufsize': f"{calcResult.videoBitrate * 2}k",    # Increase buffer size
                     'movflags': '+faststart',                        # Optimize for streaming
                     'avoid_negative_ts': 'make_zero'                # Prevent timestamp issues
                 }
             ).run()
             
+            # Check file size after compression
+            compressed_file_size = os.stat(compressed_filename).st_size
+            if compressed_file_size > file_size_limit:
+                await message.channel.send(
+                    f"⚠️ Error: Compressed file size is {compressed_file_size / 1_000_000:.2f}MB, exceeding the 8MB limit."
+                )
+                return
+            
             original_duration = float(ffmpeg.probe(fileName)['streams'][0]['duration'])
             compressed_duration = float(ffmpeg.probe(compressed_filename)['streams'][0]['duration'])
             
             if compressed_duration < original_duration:
                 await message.channel.send(
-                    f"⚠️ Warning: Video was truncated from {original_duration:.1f}s to {compressed_duration:.1f}s to maintain quality within file size limits.",
-                    delete_after=180
+                    f"⚠️ Warning: Video was truncated from {original_duration:.1f}s to {compressed_duration:.1f}s to maintain quality within file size limits."
                 )
             
             with open(compressed_filename, 'rb') as fp:
