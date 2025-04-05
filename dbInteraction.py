@@ -11,8 +11,7 @@ try:
 	dbName = os.getenv('DB_NAME')
 	conn = psycopg2.connect(f"host={host} dbname={dbName} user={dbUser} password={dbPass}")
 except Exception as e:
-	print("Cannot load DB details, repost detection will not be available" + e)
-
+    print("Cannot load DB details, repost detection will not be available: " + str(e))
 
 def savePost(userId, postId, platform, messageId):
 
