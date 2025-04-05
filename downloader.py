@@ -9,8 +9,12 @@ import requests
 
 def download(videoUrl: str, detect_repost: bool = True):
     response = {'fileName':  '', 'duration':  0, 'messages': '', 'videoId': '', 'repost': False, 'repostOriginalMesssageId': ''}
-    ydl = yt_dlp.YoutubeDL({'format_sort': ['+codec:h264'], 'outtmpl': '%(id)s.mp4', 'merge_output_format': 'mp4'})
-
+    ydl = yt_dlp.YoutubeDL({
+        'format': 'best[filesize<8M]/worst',  # Try the largest under 8MB, fallback to the smallest
+        'format_sort': ['+filesize', '+codec:h264'],  # Sort by filesize and codec preference
+        'outtmpl': '%(id)s.mp4',
+        'merge_output_format': 'mp4'
+    })
     with ydl:
         try:
             result = ydl.extract_info(

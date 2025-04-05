@@ -91,14 +91,14 @@ async def process_video(message, fileName, duration, file_size_limit, downloadRe
         probe = ffmpeg.probe(fileName)
         video_streams = [stream for stream in probe["streams"] if stream["codec_type"] == "video"]
         
-        isUnsupportedCodec = any(track["codec_name"] == "hevc" for track in video_streams)
-        
+        isUnsupportedCodec = not any(track["codec_name"] in ["h264", "hevc"] for track in video_streams)
+
         if isUnsupportedCodec:
             await message.channel.send(
                 "Video will not play inline without re-encoding, so I'm gonna do that for you :)", 
                 delete_after=180
             )
-
+        
         if fileSize < file_size_limit and not isUnsupportedCodec:
             await send_original_video(message, fileName, downloadResponse)
         else:
