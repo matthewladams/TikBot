@@ -28,6 +28,48 @@ class TestDownloader(unittest.TestCase):
         downloadResponse = download(url, detect_repost=False)
         self.assertEqual(downloadResponse["messages"], '')
 
+    def test_twitch_format_filter(self):
+        """Test that Twitch format filter prefers horizontal over vertical formats"""
+        url = "https://www.twitch.tv/northernlion/clip/DarkShakingRabbitPanicVis-eGFUUKjFgz2Su7Ny"
+        
+        # Test the actual download
+        downloadResponse = download(url, detect_repost=False)
+        
+        # Check that download was successful
+        self.assertEqual(downloadResponse["messages"], '')
+        self.assertIsNotNone(downloadResponse["fileName"])
+        self.assertIsNotNone(downloadResponse["videoId"])
+        self.assertGreater(downloadResponse["duration"], 0)
+        
+        # Verify the downloaded file exists
+        import os
+        self.assertTrue(os.path.exists(downloadResponse["fileName"]), 
+                       f"Downloaded file {downloadResponse['fileName']} should exist")
+        
+        # Use ffprobe to check video dimensions
+        import subprocess
+        ffprobe_cmd = [
+            'ffprobe',
+            '-v', 'error',
+            '-select_streams', 'v:0',
+            '-show_entries', 'stream=width,height',
+            '-of', 'csv=p=0',
+            downloadResponse["fileName"]
+        ]
+        try:
+            output = subprocess.check_output(ffprobe_cmd).decode().strip()
+            width, height = map(int, output.split(','))
+            print(f"ffprobe: width={width}, height={height}")
+            self.assertGreater(width, height, "Downloaded video should be horizontal (width > height)")
+        except Exception as e:
+            self.fail(f"ffprobe failed: {e}")
+        
+        # Clean up the downloaded file after test
+        try:
+            os.remove(downloadResponse["fileName"])
+        except OSError:
+            pass  # File might already be removed or not exist
+
 class TestCalculator(unittest.TestCase):
 
     def test_calculateBitrate_short_duration(self):

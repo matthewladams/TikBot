@@ -9,8 +9,19 @@ import requests
 
 def download(videoUrl: str, detect_repost: bool = True):
     response = {'fileName':  '', 'duration':  0, 'messages': '', 'videoId': '', 'repost': False, 'repostOriginalMesssageId': ''}
+    
+    # Check if it's a Twitch URL to use different format selection
+    is_twitch = 'twitch.tv' in videoUrl.lower()
+    
+    if is_twitch:
+        # For Twitch, exclude portrait formats
+        format_selection = 'best[filesize<8M][format_id!*=portrait]/worst[format_id!*=portrait]'
+    else:
+        # For other platforms, use original format selection
+        format_selection = 'best[filesize<8M]/worst'
+    
     ydl = yt_dlp.YoutubeDL({
-        'format': 'best[filesize<8M]/worst',  # Try the largest under 8MB, fallback to the smallest
+        'format': format_selection,
         'format_sort': ['+filesize', '+codec:h264'],  # Sort by filesize and codec preference
         'outtmpl': '%(id)s.mp4',
         'merge_output_format': 'mp4'
