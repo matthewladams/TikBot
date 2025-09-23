@@ -11,6 +11,8 @@ from validator import extractUrl, isSupportedUrl
 from dbInteraction import savePost, doesPostExist
 from concurrent.futures import ThreadPoolExecutor
 
+SKIP_STRINGS = ['🙅‍♂️', '🙅‍♀️', '❌']
+
 load_dotenv()
 
 intents = discord.Intents.default()
@@ -257,8 +259,8 @@ async def handleMessage(message):
 
         print(f"Got URL: {url} For User: {message.author}")
 
-        # Skip if no download is requested
-        if '🙅‍♂️' in message.content or '🙅‍♀️' in message.content:
+        # Skip download if any skip strings are present
+        if any(skip_str in message.content for skip_str in SKIP_STRINGS):
             return
 
         silentMode = False
