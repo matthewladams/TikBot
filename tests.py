@@ -2,6 +2,7 @@ import contextlib
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 import downloader as downloader_module
 from downloader import download
@@ -31,7 +32,25 @@ class TestUrlParser(unittest.TestCase):
         supportedResponse = isSupportedUrl(url)
         self.assertEqual(supportedResponse["supported"], 'false')
 
-class TestDownloaderIntegration(unittest.TestCase):
+IS_GITHUB_ACTIONS = os.getenv("GITHUB_ACTIONS") == "true"
+
+
+class DownloaderTestCase(unittest.TestCase):
+
+    def setUp(self):
+        super().setUp()
+        self._does_post_exist_patcher = mock.patch(
+            'downloader.doesPostExist', autospec=True, return_value=None
+        )
+        self.mock_does_post_exist = self._does_post_exist_patcher.start()
+
+    def tearDown(self):
+        self._does_post_exist_patcher.stop()
+        super().tearDown()
+
+
+@unittest.skipIf(IS_GITHUB_ACTIONS, "Reddit integration tests are blocked on GitHub Actions")
+class TestDownloaderIntegration(DownloaderTestCase):
 
     REDDIT_URL = "https://www.reddit.com/r/justgalsbeingchicks/s/N7XkNUO9m4"
 
@@ -59,6 +78,8 @@ class TestDownloaderIntegration(unittest.TestCase):
             self.assertIsNotNone(download_response["selectedFormat"])
             self.assertIn(download_response["selectedFormat"], download_response["attemptedFormats"])
 
+        self.mock_does_post_exist.assert_not_called()
+
     def test_failed_download_reports_attempts(self):
         # Intentionally invalid video to trigger all fallbacks.
         url = "https://www.reddit.com/r/this_sub_does_not_exist/comments/abcdef/"
@@ -73,6 +94,8 @@ class TestDownloaderIntegration(unittest.TestCase):
         )
         self.assertIsNone(download_response["selectedFormat"])
         self.assertIsNotNone(download_response["lastError"])
+
+        self.mock_does_post_exist.assert_not_called()
 
 class TestCalculator(unittest.TestCase):
 
@@ -142,7 +165,7 @@ class TestCalculator(unittest.TestCase):
             if(result.durationLimited == False):
                 self.assertLessEqual(total_size, max_size, f"Exceeded 8 MB for duration {duration} and was not duration limited")
 
-class TestDownloaderFormatSelection(unittest.TestCase):
+class TestDownloaderFormatSelection(DownloaderTestCase):
 
     def test_get_format_candidates_for_reddit(self):
         candidates = downloader_module._get_format_candidates("https://www.reddit.com/r/test/")
