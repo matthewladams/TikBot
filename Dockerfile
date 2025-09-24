@@ -1,5 +1,5 @@
 # Use an official Python image
-FROM python:3.9
+FROM python:3.11-slim
 
 # Set the working directory
 WORKDIR /usr/src/app
@@ -8,9 +8,10 @@ WORKDIR /usr/src/app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-RUN apt-get -y update
-RUN apt-get -y upgrade
-RUN apt-get install -y ffmpeg
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -y ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy only necessary Python scripts
 COPY calculator.py .
