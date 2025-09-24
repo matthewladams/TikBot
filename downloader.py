@@ -1,41 +1,107 @@
-import yt_dlp
 import logging
-from dbInteraction import savePost, doesPostExist
-import time
+import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
-import os
-import requests
+
+import yt_dlp
+from yt_dlp.utils import DownloadError
+
+from dbInteraction import doesPostExist
+
+logger = logging.getLogger(__name__)
+
+
+def _get_format_candidates(video_url: str) -> list[str]:
+    """Return an ordered list of format strings to try for the given URL."""
+    lowered_url = video_url.lower()
+    candidates: list[str] = []
+
+    if 'twitch.tv' in lowered_url:
+        candidates.append('best[filesize<8M][format_id!*=portrait]/worst[format_id!*=portrait]')
+    else:
+        candidates.append('best[filesize<8M]/worst')
+
+    if 'reddit.com' in lowered_url:
+        # Reddit often provides separate audio/video streams. Fallback to merging them.
+        candidates.append('bv*+ba/b')
+
+    if 'best' not in candidates:
+        candidates.append('best')
+
+    return candidates
+
+
+def _create_ydl_opts(format_selection: str) -> dict:
+    """Create yt-dlp options for a download attempt."""
+    opts: dict = {
+        'format': format_selection,
+        'outtmpl': '%(id)s.%(ext)s',
+        'merge_output_format': 'mp4',
+        'noplaylist': True,
+        'quiet': True,
+        'logger': logger,
+    }
+
+    # Preserve existing sorting preference where it makes sense.
+    if 'filesize' in format_selection:
+        opts['format_sort'] = ['+filesize', '+codec:h264']
+    else:
+        opts['format_sort'] = ['+codec:h264']
+
+    return opts
+
 
 def download(videoUrl: str, detect_repost: bool = True):
-    response = {'fileName':  '', 'duration':  0, 'messages': '', 'videoId': '', 'repost': False, 'repostOriginalMesssageId': ''}
-    
-    # Check if it's a Twitch URL to use different format selection
-    is_twitch = 'twitch.tv' in videoUrl.lower()
-    
-    if is_twitch:
-        # For Twitch, exclude portrait formats
-        format_selection = 'best[filesize<8M][format_id!*=portrait]/worst[format_id!*=portrait]'
-    else:
-        # For other platforms, use original format selection
-        format_selection = 'best[filesize<8M]/worst'
-    
-    ydl = yt_dlp.YoutubeDL({
-        'format': format_selection,
-        'format_sort': ['+filesize', '+codec:h264'],  # Sort by filesize and codec preference
-        'outtmpl': '%(id)s.mp4',
-        'merge_output_format': 'mp4'
-    })
-    with ydl:
+    response = {
+        'fileName': '',
+        'duration': 0,
+        'messages': '',
+        'videoId': '',
+        'repost': False,
+        'repostOriginalMesssageId': '',
+        'attemptedFormats': [],
+        'selectedFormat': None,
+        'lastError': None,
+    }
+
+    logger.info("Starting download for url %s", videoUrl)
+
+    result = None
+    attempted_formats = []
+    last_exception: Exception | None = None
+    selected_format: str | None = None
+
+    for format_selection in _get_format_candidates(videoUrl):
+        attempted_formats.append(format_selection)
+        ydl_opts = _create_ydl_opts(format_selection)
+        logger.debug("Attempting download with format '%s' for url %s", format_selection, videoUrl)
+
         try:
-            result = ydl.extract_info(
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                result = ydl.extract_info(videoUrl, download=True)
+                logger.info("Download succeeded with format '%s' for url %s", format_selection, videoUrl)
+                selected_format = format_selection
+                last_exception = None
+                break
+        except DownloadError as ex:
+            logger.warning("Download attempt with format '%s' for url %s failed: %s", format_selection, videoUrl, ex)
+            last_exception = ex
+        except Exception as ex:  # Catch-all to ensure retries on unexpected errors.
+            logger.error("Unexpected error during download with format '%s' for url %s: %s", format_selection, videoUrl, ex)
+            last_exception = ex
+
+    if result is None:
+        if last_exception:
+            logger.error(
+                "All download attempts failed for url %s. Tried formats: %s",
                 videoUrl,
-                download=True
+                attempted_formats,
+                exc_info=(type(last_exception), last_exception, last_exception.__traceback__)
             )
-        except Exception as ex:
-            print(ex)
-            response['messages'] = 'Error: Download Failed'
-            return response
+            response['lastError'] = str(last_exception)
+        response['messages'] = 'Error: Download Failed'
+        response['attemptedFormats'] = attempted_formats
+        return response
 
     if 'entries' in result:
         try:
@@ -61,9 +127,9 @@ def download(videoUrl: str, detect_repost: bool = True):
             # TODO - get the platform for this not just be lazy
             reposted = doesPostExist(video['id'], 'MattIsLazy')
             if reposted is not None:
-                print(f"trying repost detection with response {reposted}")
+                logger.debug("Trying repost detection with response %s", reposted)
                 repostUserId = reposted[0]
-                print(f"got repost user id {repostUserId}")
+                logger.debug("Got repost user id %s", repostUserId)
                 repostTime = reposted[1]
                 repostTimeTimezone = datetime_from_utc_to_local(repostTime)
                 if repostUserId != '':
@@ -72,7 +138,11 @@ def download(videoUrl: str, detect_repost: bool = True):
                     response['repostOriginalMesssageId'] = reposted[2]
         except Exception as e:
             # Don't die for repost detection
-            logging.error(f"Exception trying to do repost detection: {e}")
+            logger.error("Exception trying to do repost detection", exc_info=(type(e), e, e.__traceback__))
+
+    response['attemptedFormats'] = attempted_formats
+    response['selectedFormat'] = selected_format
+    response['lastError'] = str(last_exception) if last_exception else None
 
     return response
 
