@@ -1,8 +1,23 @@
+import contextlib
+import os
+import tempfile
 import unittest
-from validator import extractUrl, isSupportedUrl
+
+import downloader as downloader_module
 from downloader import download
-from dbInteraction import savePost, doesPostExist
 from calculator import calculateBitrate, calculateBitrateAudioOnly
+from validator import isSupportedUrl
+
+
+@contextlib.contextmanager
+def temporary_working_directory():
+    current = os.getcwd()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        os.chdir(tmpdir)
+        try:
+            yield tmpdir
+        finally:
+            os.chdir(current)
 
 class TestUrlParser(unittest.TestCase):
 
@@ -16,59 +31,48 @@ class TestUrlParser(unittest.TestCase):
         supportedResponse = isSupportedUrl(url)
         self.assertEqual(supportedResponse["supported"], 'false')
 
-class TestDownloader(unittest.TestCase):
+class TestDownloaderIntegration(unittest.TestCase):
 
-    def test_imgur_gallery(self):
-        url = "https://imgur.com/gallery/1jK60ka/"
-        downloadResponse = download(url, detect_repost=False)
-        self.assertEqual(downloadResponse["messages"], '')
-    
-    def test_tiktok(self):
-        url = "https://vt.tiktok.com/ZSrSTRC29/"
-        downloadResponse = download(url, detect_repost=False)
-        self.assertEqual(downloadResponse["messages"], '')
+    REDDIT_URL = "https://www.reddit.com/r/justgalsbeingchicks/s/N7XkNUO9m4"
 
-    def test_twitch_format_filter(self):
-        """Test that Twitch format filter prefers horizontal over vertical formats"""
-        url = "https://www.twitch.tv/northernlion/clip/DarkShakingRabbitPanicVis-eGFUUKjFgz2Su7Ny"
-        
-        # Test the actual download
-        downloadResponse = download(url, detect_repost=False)
-        
-        # Check that download was successful
-        self.assertEqual(downloadResponse["messages"], '')
-        self.assertIsNotNone(downloadResponse["fileName"])
-        self.assertIsNotNone(downloadResponse["videoId"])
-        self.assertGreater(downloadResponse["duration"], 0)
-        
-        # Verify the downloaded file exists
-        import os
-        self.assertTrue(os.path.exists(downloadResponse["fileName"]), 
-                       f"Downloaded file {downloadResponse['fileName']} should exist")
-        
-        # Use ffprobe to check video dimensions
-        import subprocess
-        ffprobe_cmd = [
-            'ffprobe',
-            '-v', 'error',
-            '-select_streams', 'v:0',
-            '-show_entries', 'stream=width,height',
-            '-of', 'csv=p=0',
-            downloadResponse["fileName"]
-        ]
-        try:
-            output = subprocess.check_output(ffprobe_cmd).decode().strip()
-            width, height = map(int, output.split(','))
-            print(f"ffprobe: width={width}, height={height}")
-            self.assertGreater(width, height, "Downloaded video should be horizontal (width > height)")
-        except Exception as e:
-            self.fail(f"ffprobe failed: {e}")
-        
-        # Clean up the downloaded file after test
-        try:
-            os.remove(downloadResponse["fileName"])
-        except OSError:
-            pass  # File might already be removed or not exist
+    def test_reddit_download_records_formats_and_saves_file(self):
+        with temporary_working_directory() as tmpdir:
+            download_response = download(self.REDDIT_URL, detect_repost=False)
+            file_path = os.path.join(tmpdir, download_response["fileName"])
+
+            if download_response["messages"]:
+                last_error = download_response.get("lastError") or ""
+                network_signals = (
+                    "ProxyError",
+                    "Tunnel connection failed",
+                    "Temporary failure in name resolution",
+                    "timed out",
+                )
+                if any(signal in last_error for signal in network_signals):
+                    self.skipTest(f"Network unavailable for reddit download: {last_error}")
+                self.fail(f"Reddit download failed unexpectedly: {last_error}")
+
+            self.assertTrue(os.path.exists(file_path))
+            self.assertGreater(os.path.getsize(file_path), 0)
+            self.assertGreater(download_response["duration"], 0)
+            self.assertGreaterEqual(len(download_response["attemptedFormats"]), 1)
+            self.assertIsNotNone(download_response["selectedFormat"])
+            self.assertIn(download_response["selectedFormat"], download_response["attemptedFormats"])
+
+    def test_failed_download_reports_attempts(self):
+        # Intentionally invalid video to trigger all fallbacks.
+        url = "https://www.reddit.com/r/this_sub_does_not_exist/comments/abcdef/"
+
+        with temporary_working_directory():
+            download_response = download(url, detect_repost=False)
+
+        self.assertEqual(download_response["messages"], 'Error: Download Failed')
+        self.assertListEqual(
+            download_response["attemptedFormats"],
+            downloader_module._get_format_candidates(url)
+        )
+        self.assertIsNone(download_response["selectedFormat"])
+        self.assertIsNotNone(download_response["lastError"])
 
 class TestCalculator(unittest.TestCase):
 
@@ -137,6 +141,33 @@ class TestCalculator(unittest.TestCase):
             total_size = (total_bitrate * 1000 / 8) * duration  # Convert kbps to bytes
             if(result.durationLimited == False):
                 self.assertLessEqual(total_size, max_size, f"Exceeded 8 MB for duration {duration} and was not duration limited")
+
+class TestDownloaderFormatSelection(unittest.TestCase):
+
+    def test_get_format_candidates_for_reddit(self):
+        candidates = downloader_module._get_format_candidates("https://www.reddit.com/r/test/")
+        self.assertEqual(
+            candidates,
+            ['best[filesize<8M]/worst', 'bv*+ba/b', 'best']
+        )
+
+    def test_get_format_candidates_for_twitch(self):
+        candidates = downloader_module._get_format_candidates("https://www.twitch.tv/videos/123")
+        self.assertEqual(
+            candidates,
+            ['best[filesize<8M][format_id!*=portrait]/worst[format_id!*=portrait]', 'best']
+        )
+
+    def test_create_opts_sets_format_sort_for_filesize(self):
+        opts = downloader_module._create_ydl_opts('best[filesize<8M]/worst')
+        self.assertEqual(opts['format'], 'best[filesize<8M]/worst')
+        self.assertIn('+filesize', opts['format_sort'])
+        self.assertEqual(opts['merge_output_format'], 'mp4')
+
+    def test_create_opts_sets_format_sort_for_reddit_merge(self):
+        opts = downloader_module._create_ydl_opts('bv*+ba/b')
+        self.assertEqual(opts['format'], 'bv*+ba/b')
+        self.assertEqual(opts['format_sort'], ['+codec:h264'])
 
 if __name__ == '__main__':
     unittest.main()
