@@ -155,5 +155,5 @@ def _list_from_options_callback(option, value, parser, append=True, delim=',', p
         current + value if append is True else value + current)
 
 def datetime_from_utc_to_local(utc_datetime: datetime):
-    timezone = os.getenv('TIKBOT_TIMEZONE')
+    timezone = os.getenv('TIKBOT_TIMEZONE') or 'UTC'
     return utc_datetime.astimezone(tz=ZoneInfo(timezone))
