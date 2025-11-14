@@ -1,5 +1,5 @@
 # Use an official Python image
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 # Set the working directory
 WORKDIR /usr/src/app
@@ -10,8 +10,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 RUN apt-get update \
     && apt-get upgrade -y \
-    && apt-get install -y ffmpeg \
+    && apt-get install -y ffmpeg curl unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Deno
+RUN curl -fsSL https://deno.land/x/install/install.sh | sh \
+    && export DENO_INSTALL="/root/.deno" \
+    && export PATH="$DENO_INSTALL/bin:$PATH"
+
+ENV DENO_INSTALL="/root/.deno"
+ENV PATH="${DENO_INSTALL}/bin:${PATH}"
 
 # Copy only necessary Python scripts
 COPY calculator.py .

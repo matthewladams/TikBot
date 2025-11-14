@@ -19,6 +19,11 @@
  
  6. Run the bot ```python main.py```
 
+## Docker & Deno support
+The provided `Dockerfile` builds the bot on a slim Python image and also installs `ffmpeg` and the Deno JavaScript runtime.
+
+Note: The container image includes Deno so the bot can optionally use Deno to run yt-dlp remote components.
+
 ## Automatic Domain Configuration
 By default the bot will post where a link is from ```'youtube', 'tiktok', 'instagram', 'reddit', 'redd.it'```, or if a 🤖 emoji is included in the message.
 

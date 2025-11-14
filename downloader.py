@@ -2,6 +2,7 @@ import logging
 import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import shutil
 
 import yt_dlp
 from yt_dlp.utils import DownloadError
@@ -33,7 +34,7 @@ def _get_format_candidates(video_url: str) -> list[str]:
 
 def _create_ydl_opts(format_selection: str) -> dict:
     """Create yt-dlp options for a download attempt."""
-    opts: dict = {
+    opts: dict[str, object] = {
         'format': format_selection,
         'outtmpl': '%(id)s.%(ext)s',
         'merge_output_format': 'mp4',
@@ -47,6 +48,19 @@ def _create_ydl_opts(format_selection: str) -> dict:
         opts['format_sort'] = ['+filesize', '+codec:h264']
     else:
         opts['format_sort'] = ['+codec:h264']
+
+    # Enable remote-components support (EJS from npm) when a compatible JS runtime
+    # is available (Deno or Bun) or when explicitly requested via environment.
+    # This corresponds to passing --remote-components ejs:npm to yt-dlp.
+    try:
+        enable_remote = os.getenv('TIKBOT_ENABLE_REMOTE_COMPONENTS')
+        has_runtime = shutil.which('deno') is not None or shutil.which('bun') is not None
+        if (enable_remote and enable_remote.lower() in ('1', 'true', 'yes')) or has_runtime:
+            opts['remote_components'] = ['ejs:github']
+            logger.info("Enabled yt-dlp remote_components='ejs:github' (has_runtime=%s, env=%s)", has_runtime, enable_remote)
+    except Exception:
+        # Don't fail if shutil or env checks misbehave for any reason
+        logger.error('Could not determine JS runtime availability for remote components', exc_info=True)
 
     return opts
 
