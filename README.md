@@ -52,6 +52,24 @@ Set ```DB_NAME, DB_HOST, DB_USER, DB_PASS, TIKBOT_TIMEZONE`` in ```.env```. Time
 
 Only a single table is used, see ```maintenance/create_posts_table.sql``` for a create script for the table.
 
+### Management UI (local only)
+Run a lightweight web UI to view and edit repost tracking entries. It is restricted to localhost by default.
+
+1. Install dependencies: ```pip install -r requirements.txt```
+2. Start the UI: ```python management_ui.py```
+3. Open ```http://127.0.0.1:5001/posts```
+
+Optional environment overrides:
+- ```TIKBOT_MANAGEMENT_HOST``` (default ```127.0.0.1```)
+- ```TIKBOT_MANAGEMENT_PORT``` (default ```5001```)
+
+To run the UI alongside the Discord bot:
+1. Set ```TIKBOT_MANAGEMENT_UI=true```
+2. Start the bot as usual with ```python main.py```
+
+If you're running in Docker and want to access it from your host machine, set
+```TIKBOT_MANAGEMENT_HOST=0.0.0.0``` and map the port (e.g. ```-p 5001:5001```).
+
 ### Silent Mode
 For domains with a mix of supported and unsupported content (e.g. Twitter), you may want the bot to try to post items, but only send a message if it actually gets a video to post.
 Set the domains you want this behaviour on as a space separated list in the ```TIKBOT_SILENT_DOMAINS``` environment variable.

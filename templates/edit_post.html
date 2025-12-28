@@ -1,0 +1,38 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="card">
+  <div class="meta">
+    <div>Editing post {{ row[0] }}</div>
+    <div><a href="{{ url_for('posts') }}">Back to list</a></div>
+  </div>
+  {% if error %}
+  <div class="error">{{ error }}</div>
+  {% endif %}
+  <form method="post">
+    <div class="field">
+      <label for="userId">User ID</label>
+      <input id="userId" name="userId" value="{{ row[1] or '' }}">
+    </div>
+    <div class="field">
+      <label for="videoId">Video ID</label>
+      <input id="videoId" name="videoId" value="{{ row[2] or '' }}">
+    </div>
+    <div class="field">
+      <label for="platform">Platform</label>
+      <input id="platform" name="platform" value="{{ row[3] or '' }}">
+    </div>
+    <div class="field">
+      <label for="postDateTime">Post Date Time</label>
+      <input id="postDateTime" name="postDateTime" value="{{ row[4] or '' }}" placeholder="YYYY-MM-DD HH:MM:SS">
+    </div>
+    <div class="field">
+      <label for="discordMessageId">Discord Message ID</label>
+      <input id="discordMessageId" name="discordMessageId" value="{{ row[5] or '' }}">
+    </div>
+    <div class="actions">
+      <button class="button" type="submit">Save changes</button>
+      <a class="button secondary" href="{{ url_for('posts') }}">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

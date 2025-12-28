@@ -1,0 +1,42 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="card">
+  <div class="meta">
+    <div>Showing latest {{ rows|length }} posts</div>
+    <div>Limit: {{ limit }}</div>
+  </div>
+  {% if error %}
+  <div class="error">{{ error }}</div>
+  {% endif %}
+  <table>
+    <thead>
+      <tr>
+        <th>Post ID</th>
+        <th>User ID</th>
+        <th>Video ID</th>
+        <th>Platform</th>
+        <th>Posted At</th>
+        <th>Discord Message ID</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        <td>{{ row[0] }}</td>
+        <td>{{ row[1] }}</td>
+        <td>{{ row[2] }}</td>
+        <td>{{ row[3] }}</td>
+        <td>{{ row[4] }}</td>
+        <td>{{ row[5] }}</td>
+        <td><a href="{{ url_for('edit_post', post_id=row[0]) }}">Edit</a></td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="7">No posts found.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

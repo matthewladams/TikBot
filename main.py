@@ -4,6 +4,7 @@ import os
 import ffmpeg
 import time
 import traceback
+import threading
 from dotenv import load_dotenv 
 from downloader import download
 from compressionMessages import getCompressionMessage
@@ -19,6 +20,23 @@ intents = discord.Intents.default()
 intents.message_content = True
 
 client = discord.Client(intents=intents)
+
+def _should_enable_management_ui():
+    return os.getenv("TIKBOT_MANAGEMENT_UI", "").lower() in {"1", "true", "yes", "on"}
+
+def _start_management_ui():
+    import management_ui
+
+    host = os.getenv("TIKBOT_MANAGEMENT_HOST", "127.0.0.1")
+    port = int(os.getenv("TIKBOT_MANAGEMENT_PORT", "5001"))
+    thread = threading.Thread(
+        target=management_ui.run_server,
+        kwargs={"host": host, "port": port},
+        daemon=True,
+        name="management-ui",
+    )
+    thread.start()
+    print(f"Management UI running on http://{host}:{port}")
 
 def get_file_size_limit():
     try:
@@ -376,5 +394,8 @@ async def on_ready():
 @client.event
 async def on_message(message):
     await handleMessage(message)
+
+if _should_enable_management_ui():
+    _start_management_ui()
 
 client.run(os.getenv('TOKEN'))

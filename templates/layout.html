@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title or "TikBot Management" }}</title>
+  <style>
+    :root {
+      --bg: #f7f4ef;
+      --panel: #ffffff;
+      --ink: #222222;
+      --muted: #6b6b6b;
+      --accent: #b85c38;
+      --border: #e4ded6;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Georgia", "Times New Roman", serif;
+      color: var(--ink);
+      background: linear-gradient(120deg, #f7f4ef 0%, #f1ebe3 45%, #efe5da 100%);
+    }
+
+    header {
+      padding: 32px 48px 16px;
+    }
+
+    header h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+      letter-spacing: 0.5px;
+    }
+
+    header p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    main {
+      padding: 0 48px 48px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 10px 30px rgba(68, 55, 44, 0.08);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 10px 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      margin-bottom: 16px;
+    }
+
+    .field label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .field input {
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font-size: 14px;
+      font-family: "Courier New", monospace;
+    }
+
+    .actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 10px 16px;
+      border-radius: 999px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    .button.secondary {
+      background: #d1c6b8;
+      color: #4b4036;
+    }
+
+    .error {
+      padding: 12px;
+      border-radius: 10px;
+      background: #fff3f3;
+      color: #a33a2b;
+      border: 1px solid #f2c6c0;
+      margin-bottom: 16px;
+    }
+
+    @media (max-width: 800px) {
+      header, main {
+        padding-left: 20px;
+        padding-right: 20px;
+      }
+
+      .meta {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+      }
+
+      table {
+        font-size: 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>{{ title or "TikBot Management" }}</h1>
+    <p>Local-only console for repost tracking.</p>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>
