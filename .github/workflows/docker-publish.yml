@@ -1,9 +1,14 @@
 name: docker-publish
 
 on:
-  push:
+  workflow_run:
+    workflows:
+      - Python Build & Test
+    types:
+      - completed
     branches:
       - master
+  push:
     tags:
       - "v*.*.*"
   workflow_dispatch:
@@ -15,11 +20,14 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     permissions:
       contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.ref }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
