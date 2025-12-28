@@ -8,3 +8,6 @@
 .vscode/*
 .vs/*
 __*
+
+.DS_Store
+src/
