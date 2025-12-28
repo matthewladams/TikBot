@@ -1,16 +1,37 @@
 import logging
 import os
+import shutil
 from datetime import datetime
 from zoneinfo import ZoneInfo
-import shutil
 
 import yt_dlp
 from yt_dlp.utils import DownloadError
 
 from dbInteraction import doesPostExist
 from validator import normalize_platform
+from tiktok_embed_fallback import get_tiktok_embed_url
 
 logger = logging.getLogger(__name__)
+
+class _YtdlpLogger:
+    def __init__(self, base_logger: logging.Logger):
+        self._logger = base_logger
+
+    def debug(self, msg):
+        self._logger.debug("yt-dlp: %s", msg)
+
+    def info(self, msg):
+        self._logger.info("yt-dlp: %s", msg)
+
+    def warning(self, msg):
+        self._logger.warning("yt-dlp: %s", msg)
+
+    def error(self, msg):
+        # Avoid double-reporting errors; DownloadError already surfaces them.
+        self._logger.debug("yt-dlp error: %s", msg)
+
+
+_YTDLP_LOGGER = _YtdlpLogger(logger)
 
 
 def _get_format_candidates(video_url: str) -> list[str]:
@@ -41,7 +62,8 @@ def _create_ydl_opts(format_selection: str) -> dict:
         'merge_output_format': 'mp4',
         'noplaylist': True,
         'quiet': True,
-        'logger': logger,
+        'no_warnings': True,
+        'logger': _YTDLP_LOGGER,
     }
 
     # Preserve existing sorting preference where it makes sense.
@@ -66,6 +88,83 @@ def _create_ydl_opts(format_selection: str) -> dict:
     return opts
 
 
+def _compact_error_message(error: Exception) -> str:
+    message = str(error).replace("ERROR: ", "").strip()
+    marker = "please report this issue"
+    lower_message = message.lower()
+    if marker in lower_message:
+        cutoff = lower_message.index(marker)
+        message = message[:cutoff].rstrip(" ;.")
+    return message.splitlines()[0] if message else "unknown error"
+
+
+def _attempt_download(video_url: str, attempted_formats: list[str], label: str | None = None):
+    result = None
+    last_exception: Exception | None = None
+    selected_format: str | None = None
+
+    for format_selection in _get_format_candidates(video_url):
+        reported_format = f"{format_selection} ({label})" if label else format_selection
+        attempted_formats.append(reported_format)
+        ydl_opts = _create_ydl_opts(format_selection)
+        logger.debug("Attempting download with format '%s' for url %s", format_selection, video_url)
+
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                result = ydl.extract_info(video_url, download=True)
+                logger.info("Download succeeded with format '%s' for url %s", format_selection, video_url)
+                selected_format = reported_format
+                last_exception = None
+                break
+        except DownloadError as ex:
+            logger.warning(
+                "Download attempt failed (format=%s, label=%s): %s",
+                format_selection,
+                label or "direct",
+                _compact_error_message(ex),
+            )
+            last_exception = ex
+        except Exception as ex:  # Catch-all to ensure retries on unexpected errors.
+            logger.error("Unexpected error during download with format '%s' for url %s: %s", format_selection, video_url, ex)
+            last_exception = ex
+
+    return result, selected_format, last_exception
+
+
+def _resolve_downloaded_filepath(video: dict) -> str | None:
+    requested_downloads = video.get('requested_downloads') or []
+    if requested_downloads:
+        filepath = requested_downloads[0].get('filepath') or requested_downloads[0].get('filename')
+        if filepath:
+            return filepath
+    filepath = video.get('_filename')
+    if filepath:
+        return filepath
+    if video.get('id'):
+        return f"{video['id']}.mp4"
+    return None
+
+
+def _normalize_downloaded_extension(video: dict, filepath: str) -> str:
+    ext = None
+    requested_downloads = video.get('requested_downloads') or []
+    if requested_downloads:
+        ext = requested_downloads[0].get('ext')
+    ext = ext or video.get('ext')
+
+    if ext in (None, '', 'unknown_video') and filepath.endswith('.unknown_video'):
+        renamed = filepath.rsplit('.', 1)[0] + '.mp4'
+        try:
+            os.replace(filepath, renamed)
+            logger.info("Renamed %s to %s based on unknown_video extension", filepath, renamed)
+            return renamed
+        except OSError as exc:
+            logger.warning("Failed to rename %s to %s: %s", filepath, renamed, exc)
+            return filepath
+
+    return filepath
+
+
 def download(videoUrl: str, detect_repost: bool = True):
     response = {
         'fileName': '',
@@ -82,29 +181,18 @@ def download(videoUrl: str, detect_repost: bool = True):
 
     logger.info("Starting download for url %s", videoUrl)
 
-    result = None
     attempted_formats = []
-    last_exception: Exception | None = None
-    selected_format: str | None = None
+    result, selected_format, last_exception = _attempt_download(videoUrl, attempted_formats)
 
-    for format_selection in _get_format_candidates(videoUrl):
-        attempted_formats.append(format_selection)
-        ydl_opts = _create_ydl_opts(format_selection)
-        logger.debug("Attempting download with format '%s' for url %s", format_selection, videoUrl)
-
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                result = ydl.extract_info(videoUrl, download=True)
-                logger.info("Download succeeded with format '%s' for url %s", format_selection, videoUrl)
-                selected_format = format_selection
-                last_exception = None
-                break
-        except DownloadError as ex:
-            logger.warning("Download attempt with format '%s' for url %s failed: %s", format_selection, videoUrl, ex)
-            last_exception = ex
-        except Exception as ex:  # Catch-all to ensure retries on unexpected errors.
-            logger.error("Unexpected error during download with format '%s' for url %s: %s", format_selection, videoUrl, ex)
-            last_exception = ex
+    if result is None and response['platform'] == 'tiktok':
+        embed_url = get_tiktok_embed_url(videoUrl)
+        if embed_url:
+            logger.info("Direct TikTok download failed; retrying with embed URL %s", embed_url)
+            result, selected_format, last_exception = _attempt_download(
+                embed_url,
+                attempted_formats,
+                label='embed'
+            )
 
     if result is None:
         if last_exception:
@@ -135,8 +223,17 @@ def download(videoUrl: str, detect_repost: bool = True):
 
     if('duration' in video):
         response['duration'] = video['duration']
-    response['fileName'] = video['id'] + ".mp4"
     response['videoId'] = video['id']
+
+    downloaded_filepath = _resolve_downloaded_filepath(video)
+    if not downloaded_filepath or not os.path.exists(downloaded_filepath):
+        response['messages'] = 'Error: Download Failed'
+        response['attemptedFormats'] = attempted_formats
+        response['selectedFormat'] = selected_format
+        response['lastError'] = response['lastError'] or 'Downloaded file was not created'
+        return response
+
+    response['fileName'] = _normalize_downloaded_extension(video, downloaded_filepath)
 
     if detect_repost:
         try:
