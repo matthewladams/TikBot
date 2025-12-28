@@ -27,6 +27,7 @@ COPY compressionMessages.py .
 COPY dbInteraction.py .
 COPY downloader.py .
 COPY main.py .
+COPY tiktok_embed_fallback.py .
 COPY validator.py .
 
 # Set the default command to run your app, assuming main.py is the entry point
