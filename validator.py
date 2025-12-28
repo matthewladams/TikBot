@@ -9,6 +9,7 @@ KNOWN_PLATFORMS = {
     'reddit': ('reddit.com', 'redd.it'),
     'twitch': ('twitch.tv',),
 }
+DEFAULT_SUPPORTED_PLATFORMS = {'youtube', 'tiktok', 'instagram', 'reddit'}
 
 def _extract_host(url: str) -> str:
     normalized = url if '://' in url else f"https://{url}"
@@ -49,7 +50,7 @@ def isSupportedUrl(url):
 
     if(envDomains is None):
         print("Using default supported domains list")
-        if normalize_platform(url) != 'unknown':
+        if normalize_platform(url) in DEFAULT_SUPPORTED_PLATFORMS:
             response['supported'] = 'true'
     else:
         supportedDomains = envDomains.split(" ")
