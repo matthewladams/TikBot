@@ -1,5 +1,29 @@
 import re
 import os
+from urllib.parse import urlparse
+
+KNOWN_PLATFORMS = {
+    'youtube': ('youtube.com', 'youtu.be'),
+    'tiktok': ('tiktok.com',),
+    'instagram': ('instagram.com',),
+    'reddit': ('reddit.com', 'redd.it'),
+    'twitch': ('twitch.tv',),
+}
+
+def _extract_host(url: str) -> str:
+    normalized = url if '://' in url else f"https://{url}"
+    parsed = urlparse(normalized)
+    host = parsed.netloc or parsed.path.split('/')[0]
+    host = host.split('@')[-1].split(':')[0]
+    return host.lower()
+
+def normalize_platform(url: str) -> str:
+    host = _extract_host(url)
+    for platform, domains in KNOWN_PLATFORMS.items():
+        for domain in domains:
+            if host == domain or host.endswith(f".{domain}"):
+                return platform
+    return 'unknown'
 
 def extractUrl(inputString):
     response = {'url':  '', 'messages': ''}
@@ -25,13 +49,13 @@ def isSupportedUrl(url):
 
     if(envDomains is None):
         print("Using default supported domains list")
-        supportedDomains = ['youtube', 'tiktok', 'instagram', 'reddit', 'redd.it']
+        if normalize_platform(url) != 'unknown':
+            response['supported'] = 'true'
     else:
         supportedDomains = envDomains.split(" ")
-
-    for domain in supportedDomains:
-        if(domain in url):
-            response['supported'] = 'true'
+        for domain in supportedDomains:
+            if(domain in url):
+                response['supported'] = 'true'
     
     silentDomains = os.getenv('TIKBOT_SILENT_DOMAINS')
 

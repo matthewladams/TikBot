@@ -120,7 +120,12 @@ async def send_original_video(message, fileName, downloadResponse):
         with open(fileName, 'rb') as fp:
             await message.channel.send(file=discord.File(fp, str(fileName)))
             try:
-                savePost(message.author.name, downloadResponse['videoId'], 'MattIsLazy', message.id)
+                savePost(
+                    message.author.name,
+                    downloadResponse['videoId'],
+                    downloadResponse.get('platform', 'unknown'),
+                    message.id,
+                )
             except Exception as e:
                 print(f"Warning: Failed to save post details: {e}")
     except Exception as e:
@@ -192,7 +197,12 @@ async def send_compressed_video(message, fileName, duration, file_size_limit, do
                     await message.channel.send('Video duration was limited to keep quality above total potato.')
                 
                 try:
-                    savePost(message.author.name, downloadResponse['videoId'], 'MattIsLazy', message.id)
+                    savePost(
+                        message.author.name,
+                        downloadResponse['videoId'],
+                        downloadResponse.get('platform', 'unknown'),
+                        message.id,
+                    )
                 except Exception as e:
                     print(f"Warning: Failed to save post details: {e}")
                     

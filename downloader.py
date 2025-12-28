@@ -8,6 +8,7 @@ import yt_dlp
 from yt_dlp.utils import DownloadError
 
 from dbInteraction import doesPostExist
+from validator import normalize_platform
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,7 @@ def download(videoUrl: str, detect_repost: bool = True):
         'duration': 0,
         'messages': '',
         'videoId': '',
+        'platform': normalize_platform(videoUrl),
         'repost': False,
         'repostOriginalMesssageId': '',
         'attemptedFormats': [],
@@ -138,8 +140,9 @@ def download(videoUrl: str, detect_repost: bool = True):
 
     if detect_repost:
         try:
-            # TODO - get the platform for this not just be lazy
-            reposted = doesPostExist(video['id'], 'MattIsLazy')
+            reposted = doesPostExist(video['id'], response['platform'])
+            if reposted is None and response['platform'] != 'unknown':
+                reposted = doesPostExist(video['id'], 'MattIsLazy')
             if reposted is not None:
                 logger.debug("Trying repost detection with response %s", reposted)
                 repostUserId = reposted[0]
