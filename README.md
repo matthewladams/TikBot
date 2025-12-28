@@ -24,6 +24,18 @@ The provided `Dockerfile` builds the bot on a slim Python image and also install
 
 Note: The container image includes Deno so the bot can optionally use Deno to run yt-dlp remote components.
 
+## Docker Hub publishing from GitHub Actions
+This repo includes a GitHub Actions workflow to build and push the Docker image to Docker Hub on pushes to `master`, and on version tags like `v1.2.3`.
+
+Setup in GitHub:
+1. Create Docker Hub credentials (use a personal access token).
+2. Add repo secrets:
+   - `DOCKERHUB_USERNAME`
+   - `DOCKERHUB_TOKEN`
+3. Add a repo variable:
+   - `DOCKERHUB_REPOSITORY` (example: `yourname/tikbot`)
+
+
 ## Automatic Domain Configuration
 By default the bot will post where a link is from ```'youtube', 'tiktok', 'instagram', 'reddit', 'redd.it'```, or if a 🤖 emoji is included in the message.
 
