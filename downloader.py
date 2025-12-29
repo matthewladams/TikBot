@@ -5,11 +5,12 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import yt_dlp
+from yt_dlp.networking.impersonate import ImpersonateTarget
 from yt_dlp.utils import DownloadError
 
 from dbInteraction import doesPostExist
 from validator import normalize_platform
-from tiktok_embed_fallback import get_tiktok_embed_url
+from tiktok_embed_fallback import download_tiktok_embed_video_playwright, get_tiktok_embed_url
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,15 @@ def _create_ydl_opts(format_selection: str) -> dict:
     except Exception:
         # Don't fail if shutil or env checks misbehave for any reason
         logger.error('Could not determine JS runtime availability for remote components', exc_info=True)
+
+    impersonate = os.getenv('TIKBOT_IMPERSONATE')
+    if impersonate:
+        try:
+            normalized = impersonate.strip().lower()
+            opts['impersonate'] = ImpersonateTarget.from_str(normalized)
+            logger.info("Enabled yt-dlp impersonation=%s", normalized)
+        except ValueError as exc:
+            logger.warning("Invalid TIKBOT_IMPERSONATE value '%s': %s", impersonate, exc)
 
     return opts
 
@@ -180,19 +190,41 @@ def download(videoUrl: str, detect_repost: bool = True):
     }
 
     logger.info("Starting download for url %s", videoUrl)
+    if response['platform'] == 'tiktok' and not os.getenv('TIKBOT_IMPERSONATE'):
+        logger.info(
+            "TikTok downloads often require yt-dlp impersonation; set TIKBOT_IMPERSONATE=chrome-120 or similar "
+            "(see `python -m yt_dlp --list-impersonate-targets`)"
+        )
 
     attempted_formats = []
+    download_method = "yt-dlp"
     result, selected_format, last_exception = _attempt_download(videoUrl, attempted_formats)
 
     if result is None and response['platform'] == 'tiktok':
         embed_url = get_tiktok_embed_url(videoUrl)
         if embed_url:
             logger.info("Direct TikTok download failed; retrying with embed URL %s", embed_url)
+            download_method = "yt-dlp-embed"
             result, selected_format, last_exception = _attempt_download(
                 embed_url,
                 attempted_formats,
                 label='embed'
             )
+        if result is None:
+            attempted_formats.append("embed-playwright")
+            logger.info("Attempting TikTok download via Playwright fallback")
+            download_result = download_tiktok_embed_video_playwright(videoUrl)
+            if download_result:
+                result = {
+                    "id": download_result.get("video_id") or "",
+                    "_filename": download_result["file_path"],
+                }
+                selected_format = "embed-playwright"
+                download_method = "playwright"
+                last_exception = None
+            else:
+                logger.warning("Playwright fallback did not produce a downloadable media response")
+                last_exception = last_exception or Exception("Playwright embed download failed")
 
     if result is None:
         if last_exception:
@@ -253,6 +285,12 @@ def download(videoUrl: str, detect_repost: bool = True):
         except Exception as e:
             # Don't die for repost detection
             logger.error("Exception trying to do repost detection", exc_info=(type(e), e, e.__traceback__))
+
+    if response['platform'] == 'tiktok':
+        if response['messages']:
+            response['messages'] = f"{response['messages']} (downloaded via {download_method})"
+        else:
+            response['messages'] = f"Info: Downloaded via {download_method}"
 
     response['attemptedFormats'] = attempted_formats
     response['selectedFormat'] = selected_format

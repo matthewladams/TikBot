@@ -1,4 +1,5 @@
 yt-dlp[default,curl-cffi]
+playwright
 discord
 python-dotenv
 ffmpeg-python

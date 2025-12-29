@@ -33,6 +33,7 @@ class TestUrlParser(unittest.TestCase):
         self.assertEqual(supportedResponse["supported"], 'false')
 
 IS_GITHUB_ACTIONS = os.getenv("GITHUB_ACTIONS") == "true"
+PLAYWRIGHT_TEST_ENABLED = os.getenv("TIKBOT_ENABLE_PLAYWRIGHT_TEST") == "1"
 
 
 class DownloaderTestCase(unittest.TestCase):
@@ -53,13 +54,14 @@ class DownloaderTestCase(unittest.TestCase):
 class TestDownloaderIntegration(DownloaderTestCase):
 
     REDDIT_URL = "https://www.reddit.com/r/justgalsbeingchicks/s/N7XkNUO9m4"
+    TIKTOK_URL = "https://vt.tiktok.com/ZS58A5JDA/"
 
     def test_reddit_download_records_formats_and_saves_file(self):
         with temporary_working_directory() as tmpdir:
             download_response = download(self.REDDIT_URL, detect_repost=False)
             file_path = os.path.join(tmpdir, download_response["fileName"])
 
-            if download_response["messages"]:
+            if download_response["messages"] and download_response["messages"].startswith("Error"):
                 last_error = download_response.get("lastError") or ""
                 network_signals = (
                     "ProxyError",
@@ -79,6 +81,61 @@ class TestDownloaderIntegration(DownloaderTestCase):
             self.assertIn(download_response["selectedFormat"], download_response["attemptedFormats"])
 
         self.mock_does_post_exist.assert_not_called()
+
+    def test_tiktok_download_records_formats_and_saves_file(self):
+        with temporary_working_directory() as tmpdir:
+            download_response = download(self.TIKTOK_URL, detect_repost=False)
+            file_path = os.path.join(tmpdir, download_response["fileName"])
+
+            if download_response["messages"] and download_response["messages"].startswith("Error"):
+                last_error = download_response.get("lastError") or ""
+                network_signals = (
+                    "ProxyError",
+                    "Tunnel connection failed",
+                    "Temporary failure in name resolution",
+                    "timed out",
+                    "429",
+                )
+                if any(signal in last_error for signal in network_signals):
+                    self.skipTest(f"Network unavailable for tiktok download: {last_error}")
+                self.fail(f"TikTok download failed unexpectedly: {last_error}")
+
+            self.assertTrue(os.path.exists(file_path))
+            self.assertGreater(os.path.getsize(file_path), 0)
+            self.assertGreater(download_response["duration"], 0)
+            self.assertGreaterEqual(len(download_response["attemptedFormats"]), 1)
+            self.assertIsNotNone(download_response["selectedFormat"])
+            self.assertIn(download_response["selectedFormat"], download_response["attemptedFormats"])
+
+        self.mock_does_post_exist.assert_not_called()
+
+    @unittest.skipUnless(PLAYWRIGHT_TEST_ENABLED, "Playwright test requires TIKBOT_ENABLE_PLAYWRIGHT_TEST=1")
+    def test_tiktok_download_via_playwright(self):
+        try:
+            import playwright  # noqa: F401
+        except Exception:
+            self.skipTest("Playwright is not installed")
+
+        original_enable = os.environ.get("TIKBOT_ENABLE_PLAYWRIGHT")
+        os.environ["TIKBOT_ENABLE_PLAYWRIGHT"] = "1"
+        try:
+            with temporary_working_directory() as tmpdir:
+                download_response = download(self.TIKTOK_URL, detect_repost=False)
+                file_path = os.path.join(tmpdir, download_response["fileName"])
+
+                if download_response["messages"]:
+                    last_error = download_response.get("lastError") or ""
+                    if "Playwright" in last_error or "browser" in last_error:
+                        self.skipTest(f"Playwright unavailable: {last_error}")
+                    self.fail(f"TikTok download failed unexpectedly: {last_error}")
+
+                self.assertTrue(os.path.exists(file_path))
+                self.assertGreater(os.path.getsize(file_path), 0)
+        finally:
+            if original_enable is None:
+                os.environ.pop("TIKBOT_ENABLE_PLAYWRIGHT", None)
+            else:
+                os.environ["TIKBOT_ENABLE_PLAYWRIGHT"] = original_enable
 
     def test_failed_download_reports_attempts(self):
         # Intentionally invalid video to trigger all fallbacks.

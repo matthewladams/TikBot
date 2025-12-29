@@ -13,6 +13,9 @@ RUN apt-get update \
     && apt-get install -y ffmpeg curl unzip \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Playwright browser dependencies and Chromium.
+RUN python -m playwright install --with-deps chromium
+
 # Install Deno
 RUN curl -fsSL https://deno.land/x/install/install.sh | sh \
     && export DENO_INSTALL="/root/.deno" \

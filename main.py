@@ -361,6 +361,15 @@ async def handleMessage(message):
                 await message.channel.send(f'{messages} (Failed to find original post to reply to)')
             return
 
+        # Post a temporary download method note for TikTok.
+        if (
+            not silentMode
+            and downloadResponse.get('platform') == 'tiktok'
+            and messages
+            and not messages.startswith("Error")
+        ):
+            await message.channel.send(messages, delete_after=10)
+
         # Process the video
         try:
             await process_video(message, fileName, duration, get_file_size_limit(), downloadResponse)
