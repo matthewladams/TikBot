@@ -180,8 +180,12 @@ async def send_compressed_video(message, fileName, duration, file_size_limit, do
                 'b:a': f"{calcResult.audioBitrate}k",
                 'bufsize': f"{2 * calcResult.videoBitrate}k",
                 'vf': 'scale=-2:720',          # Scale to 720p while maintaining aspect ratio
+                'pix_fmt': 'yuv420p',
+                'profile:v': 'main',
+                'tag:v': 'hvc1',               # iOS-friendly HEVC tag
                 'preset': 'fast',            # Balance between speed and compression
                 'fs': int(file_size_limit),    # Hard cap file length
+                'movflags': '+faststart',      # Make MP4 streamable
                 'f': 'mp4',                    # Container format for H.265
             }
             if calcResult.maxDuration:
