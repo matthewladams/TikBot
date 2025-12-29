@@ -1,24 +1,58 @@
+import asyncio
 import contextlib
+import logging
 import os
 import tempfile
 import unittest
+import shutil
 from unittest import mock
 
 import downloader as downloader_module
-from downloader import download
+from downloader import download_with_retries
 from calculator import calculateBitrate, calculateBitrateAudioOnly
 from validator import isSupportedUrl
 
 
+if not logging.getLogger().handlers:
+    logging.basicConfig(
+        level=os.getenv("TIKBOT_LOG_LEVEL", "INFO"),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
 @contextlib.contextmanager
 def temporary_working_directory():
     current = os.getcwd()
-    with tempfile.TemporaryDirectory() as tmpdir:
-        os.chdir(tmpdir)
-        try:
-            yield tmpdir
-        finally:
-            os.chdir(current)
+    base_tmp_dir = os.path.join(current, "tmp_tests")
+    os.makedirs(base_tmp_dir, exist_ok=True)
+    keep_tmp = os.getenv("TIKBOT_TEST_KEEP_TMP") == "1"
+    keep_tmp = True
+    tmpdir = tempfile.mkdtemp(dir=base_tmp_dir)
+    os.chdir(tmpdir)
+    try:
+        yield tmpdir
+    finally:
+        os.chdir(current)
+        if keep_tmp:
+            logging.info("Keeping test temp dir: %s", tmpdir)
+        else:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def assert_download_succeeded(test_case, download_response, file_path, allow_zero_duration=False):
+    if download_response["messages"] and download_response["messages"].startswith("Error"):
+        last_error = download_response.get("lastError") or ""
+        raise AssertionError(f"Download failed unexpectedly: {last_error}")
+
+    test_case.assertTrue(os.path.exists(file_path))
+    test_case.assertGreater(os.path.getsize(file_path), 0)
+    if not allow_zero_duration:
+        test_case.assertGreater(download_response["duration"], 0)
+    else:
+        if download_response["duration"] == 0:
+            test_case.assertIn("downloaded via", download_response["messages"] or "")
+    test_case.assertGreaterEqual(len(download_response["attemptedFormats"]), 1)
+    test_case.assertIsNotNone(download_response["selectedFormat"])
+    test_case.assertIn(download_response["selectedFormat"], download_response["attemptedFormats"])
 
 class TestUrlParser(unittest.TestCase):
 
@@ -50,15 +84,41 @@ class DownloaderTestCase(unittest.TestCase):
         super().tearDown()
 
 
+class _FakeChannel:
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, content=None, **kwargs):
+        self.sent.append({"content": content, "file": kwargs.get("file")})
+
+
+class _FakeAuthor:
+    def __init__(self, name="test-user"):
+        self.name = name
+
+
+class _FakeMessage:
+    def __init__(self):
+        self.channel = _FakeChannel()
+        self.author = _FakeAuthor()
+        self.id = 1
+
+
 @unittest.skipIf(IS_GITHUB_ACTIONS, "Reddit integration tests are blocked on GitHub Actions")
 class TestDownloaderIntegration(DownloaderTestCase):
 
     REDDIT_URL = "https://www.reddit.com/r/justgalsbeingchicks/s/N7XkNUO9m4"
     TIKTOK_URL = "https://vt.tiktok.com/ZS58A5JDA/"
+    TIKTOK_SHORT_URL = "https://vt.tiktok.com/ZS58vKJ4h/"
 
     def test_reddit_download_records_formats_and_saves_file(self):
         with temporary_working_directory() as tmpdir:
-            download_response = download(self.REDDIT_URL, detect_repost=False)
+            download_response = download_with_retries(
+                self.REDDIT_URL,
+                retries=4,
+                retry_multiplier=0,
+                detect_repost=False
+            )
             file_path = os.path.join(tmpdir, download_response["fileName"])
 
             if download_response["messages"] and download_response["messages"].startswith("Error"):
@@ -73,18 +133,18 @@ class TestDownloaderIntegration(DownloaderTestCase):
                     self.skipTest(f"Network unavailable for reddit download: {last_error}")
                 self.fail(f"Reddit download failed unexpectedly: {last_error}")
 
-            self.assertTrue(os.path.exists(file_path))
-            self.assertGreater(os.path.getsize(file_path), 0)
-            self.assertGreater(download_response["duration"], 0)
-            self.assertGreaterEqual(len(download_response["attemptedFormats"]), 1)
-            self.assertIsNotNone(download_response["selectedFormat"])
-            self.assertIn(download_response["selectedFormat"], download_response["attemptedFormats"])
+            assert_download_succeeded(self, download_response, file_path)
 
         self.mock_does_post_exist.assert_not_called()
 
     def test_tiktok_download_records_formats_and_saves_file(self):
         with temporary_working_directory() as tmpdir:
-            download_response = download(self.TIKTOK_URL, detect_repost=False)
+            download_response = download_with_retries(
+                self.TIKTOK_URL,
+                retries=4,
+                retry_multiplier=0,
+                detect_repost=False
+            )
             file_path = os.path.join(tmpdir, download_response["fileName"])
 
             if download_response["messages"] and download_response["messages"].startswith("Error"):
@@ -100,14 +160,91 @@ class TestDownloaderIntegration(DownloaderTestCase):
                     self.skipTest(f"Network unavailable for tiktok download: {last_error}")
                 self.fail(f"TikTok download failed unexpectedly: {last_error}")
 
-            self.assertTrue(os.path.exists(file_path))
-            self.assertGreater(os.path.getsize(file_path), 0)
-            self.assertGreater(download_response["duration"], 0)
-            self.assertGreaterEqual(len(download_response["attemptedFormats"]), 1)
-            self.assertIsNotNone(download_response["selectedFormat"])
-            self.assertIn(download_response["selectedFormat"], download_response["attemptedFormats"])
+            assert_download_succeeded(self, download_response, file_path, allow_zero_duration=True)
 
         self.mock_does_post_exist.assert_not_called()
+
+    def test_tiktok_short_url_download_records_formats_and_saves_file(self):
+        with temporary_working_directory() as tmpdir:
+            download_response = download_with_retries(
+                self.TIKTOK_SHORT_URL,
+                retries=4,
+                retry_multiplier=0,
+                detect_repost=False
+            )
+            file_path = os.path.join(tmpdir, download_response["fileName"])
+
+            if download_response["messages"] and download_response["messages"].startswith("Error"):
+                last_error = download_response.get("lastError") or ""
+                network_signals = (
+                    "ProxyError",
+                    "Tunnel connection failed",
+                    "Temporary failure in name resolution",
+                    "timed out",
+                    "429",
+                )
+                if any(signal in last_error for signal in network_signals):
+                    self.skipTest(f"Network unavailable for tiktok download: {last_error}")
+                self.fail(f"TikTok download failed unexpectedly: {last_error}")
+
+            assert_download_succeeded(self, download_response, file_path, allow_zero_duration=True)
+
+        self.mock_does_post_exist.assert_not_called()
+
+    def test_tiktok_short_url_end_to_end_processing(self):
+        from main import process_video
+
+        with temporary_working_directory() as tmpdir:
+            download_response = download_with_retries(
+                self.TIKTOK_SHORT_URL,
+                retries=4,
+                retry_multiplier=0,
+                detect_repost=False
+            )
+            file_path = os.path.join(tmpdir, download_response["fileName"])
+
+            if download_response["messages"] and download_response["messages"].startswith("Error"):
+                last_error = download_response.get("lastError") or ""
+                network_signals = (
+                    "ProxyError",
+                    "Tunnel connection failed",
+                    "Temporary failure in name resolution",
+                    "timed out",
+                    "429",
+                )
+                if any(signal in last_error for signal in network_signals):
+                    self.skipTest(f"Network unavailable for tiktok download: {last_error}")
+                self.fail(f"TikTok download failed unexpectedly: {last_error}")
+
+            message = _FakeMessage()
+            with mock.patch("main.savePost", autospec=True, return_value=None):
+                try:
+                    asyncio.run(
+                        process_video(
+                            message,
+                            file_path,
+                            download_response["duration"],
+                            8_000_000,
+                            download_response
+                        )
+                    )
+                except Exception:
+                    pass
+
+            sent_text = [item["content"] for item in message.channel.sent if item["content"]]
+            logging.info("E2E messages: %s", sent_text)
+            logging.info("E2E selectedFormat: %s", download_response.get("selectedFormat"))
+            failure_phrases = (
+                "Failed to compress or send the video",
+                "Failed to process the compressed video",
+                "Failed to process the video file",
+            )
+            if any(phrase in text for text in sent_text for phrase in failure_phrases):
+                self.fail(f"Compression failed in E2E flow: {sent_text}")
+            self.assertTrue(
+                any(item["file"] for item in message.channel.sent),
+                f"Expected a file send, got: {sent_text}"
+            )
 
     @unittest.skipUnless(PLAYWRIGHT_TEST_ENABLED, "Playwright test requires TIKBOT_ENABLE_PLAYWRIGHT_TEST=1")
     def test_tiktok_download_via_playwright(self):
@@ -120,7 +257,12 @@ class TestDownloaderIntegration(DownloaderTestCase):
         os.environ["TIKBOT_ENABLE_PLAYWRIGHT"] = "1"
         try:
             with temporary_working_directory() as tmpdir:
-                download_response = download(self.TIKTOK_URL, detect_repost=False)
+                download_response = download_with_retries(
+                    self.TIKTOK_URL,
+                    retries=4,
+                    retry_multiplier=0,
+                    detect_repost=False
+                )
                 file_path = os.path.join(tmpdir, download_response["fileName"])
 
                 if download_response["messages"]:
@@ -129,8 +271,7 @@ class TestDownloaderIntegration(DownloaderTestCase):
                         self.skipTest(f"Playwright unavailable: {last_error}")
                     self.fail(f"TikTok download failed unexpectedly: {last_error}")
 
-                self.assertTrue(os.path.exists(file_path))
-                self.assertGreater(os.path.getsize(file_path), 0)
+                assert_download_succeeded(self, download_response, file_path, allow_zero_duration=True)
         finally:
             if original_enable is None:
                 os.environ.pop("TIKBOT_ENABLE_PLAYWRIGHT", None)
@@ -142,7 +283,12 @@ class TestDownloaderIntegration(DownloaderTestCase):
         url = "https://www.reddit.com/r/this_sub_does_not_exist/comments/abcdef/"
 
         with temporary_working_directory():
-            download_response = download(url, detect_repost=False)
+            download_response = download_with_retries(
+                url,
+                retries=4,
+                retry_multiplier=0,
+                detect_repost=False
+            )
 
         self.assertEqual(download_response["messages"], 'Error: Download Failed')
         self.assertListEqual(

@@ -1,6 +1,7 @@
 import logging
 import os
 import shutil
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -200,6 +201,18 @@ def download(videoUrl: str, detect_repost: bool = True):
     download_method = "yt-dlp"
     result, selected_format, last_exception = _attempt_download(videoUrl, attempted_formats)
 
+    if response['platform'] == 'tiktok' and result is not None:
+        video = result['entries'][0] if 'entries' in result else result
+        downloaded_filepath = _resolve_downloaded_filepath(video) if isinstance(video, dict) else None
+        duration = video.get('duration') if isinstance(video, dict) else None
+        file_missing = not downloaded_filepath or not os.path.exists(downloaded_filepath)
+        file_empty = bool(downloaded_filepath) and os.path.exists(downloaded_filepath) and os.path.getsize(downloaded_filepath) == 0
+        if file_missing or file_empty or not duration:
+            logger.warning("TikTok direct download produced no usable file; retrying fallbacks")
+            result = None
+            selected_format = None
+            last_exception = last_exception or Exception("TikTok direct download produced no usable file")
+
     if result is None and response['platform'] == 'tiktok':
         embed_url = get_tiktok_embed_url(videoUrl)
         if embed_url:
@@ -295,6 +308,39 @@ def download(videoUrl: str, detect_repost: bool = True):
     response['attemptedFormats'] = attempted_formats
     response['selectedFormat'] = selected_format
     response['lastError'] = str(last_exception) if last_exception else None
+
+    return response
+
+
+def download_with_retries(
+    video_url: str,
+    retries: int = 4,
+    retry_multiplier: int | None = None,
+    on_retry=None,
+    detect_repost: bool = True,
+):
+    if retry_multiplier is None:
+        retry_multiplier = int(os.getenv('TIKBOT_RETRY_MULTI') or '1')
+
+    attempt = 1
+    response = None
+    while attempt <= retries:
+        try:
+            response = download(video_url, detect_repost=detect_repost)
+            messages = response.get('messages', '')
+            if messages.startswith("Error") and attempt < retries:
+                if on_retry:
+                    on_retry(attempt, response)
+                logger.warning("Retrying download (attempt %s/%s) after error: %s", attempt, retries, messages)
+                time.sleep(retry_multiplier * attempt)
+                attempt += 1
+                continue
+            return response
+        except Exception as exc:
+            logger.exception("Download attempt %s/%s raised an exception", attempt, retries)
+            if attempt == retries:
+                raise
+            attempt += 1
 
     return response
 
