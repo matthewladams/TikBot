@@ -5,6 +5,7 @@ import ffmpeg
 import traceback
 import asyncio
 import logging
+import threading
 from dotenv import load_dotenv 
 from downloader import download, download_with_retries
 from compressionMessages import getCompressionMessage
@@ -27,6 +28,15 @@ if not logging.getLogger().handlers:
         level=os.getenv("TIKBOT_LOG_LEVEL", "INFO"),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+
+def start_management_ui():
+    enabled = os.getenv("TIKBOT_MANAGEMENT_UI_ENABLED", "true").lower() not in {"0", "false", "no"}
+    if not enabled:
+        return
+    from management_ui import run as run_management_ui
+    thread = threading.Thread(target=run_management_ui, name="management-ui", daemon=True)
+    thread.start()
+    logger.info("Management UI running on port %s", os.getenv("TIKBOT_MANAGEMENT_UI_PORT", "8080"))
 
 def get_file_size_limit():
     try:
@@ -425,4 +435,5 @@ async def on_message(message):
     await handleMessage(message)
 
 if __name__ == "__main__":
+    start_management_ui()
     client.run(os.getenv('TOKEN'))
