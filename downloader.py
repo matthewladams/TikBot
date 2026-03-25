@@ -41,7 +41,10 @@ def _get_format_candidates(video_url: str) -> list[str]:
     lowered_url = video_url.lower()
     candidates: list[str] = []
 
-    if 'twitch.tv' in lowered_url:
+    if 'youtube.com' in lowered_url or 'youtu.be' in lowered_url:
+        # Prefer a higher-quality MP4/M4A pair that still fits under Discord's upload budget.
+        candidates.append('bestvideo[ext=mp4][filesize<7M]+bestaudio[ext=m4a][filesize<1050K]/b[ext=mp4][filesize<8M]/best[filesize<8M]')
+    elif 'twitch.tv' in lowered_url:
         candidates.append('best[filesize<8M][format_id!*=portrait]/worst[format_id!*=portrait]')
     else:
         candidates.append('best[filesize<8M]/worst')
@@ -69,7 +72,9 @@ def _create_ydl_opts(format_selection: str) -> dict:
     }
 
     # Preserve existing sorting preference where it makes sense.
-    if 'filesize' in format_selection:
+    if format_selection.startswith('bestvideo['):
+        opts['format_sort'] = ['+codec:h264']
+    elif 'filesize' in format_selection:
         opts['format_sort'] = ['+filesize', '+codec:h264']
     else:
         opts['format_sort'] = ['+codec:h264']
