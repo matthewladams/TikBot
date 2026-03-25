@@ -20,7 +20,7 @@
  6. Run the bot ```python main.py```
 
 ## Versioning
-TikBot includes an application version in its Discord presence, shown as `Playing tik-tok channels | vX.Y.Z`.
+TikBot includes an application version in its Discord presence, shown as `Playing doomscrolling | vX.Y.Z` by default.
 
 Version resolution works like this:
 
@@ -30,6 +30,8 @@ Version resolution works like this:
 4. If git metadata is unavailable, it falls back to the seeded default in [`version.py`](/Users/matthewadams/Developer/TikBot/version.py), currently `1.96.0`.
 
 The Docker build and GitHub Actions publish workflow pass the resolved version into the container image automatically, so the running bot keeps the same version string even without a `.git` directory in the container.
+
+If you want to change the text before the version suffix, set `TIKBOT_STATUS_TEXT` in `.env`. For example: `TIKBOT_STATUS_TEXT=tik-tok channels`.
 
 ## Docker & Deno support
 The provided `Dockerfile` builds the bot on a slim Python image and also installs `ffmpeg` and the Deno JavaScript runtime.

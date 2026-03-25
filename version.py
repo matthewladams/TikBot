@@ -4,6 +4,8 @@ import subprocess
 
 DEFAULT_VERSION = "1.96.0"
 VERSION_ENV_VAR = "TIKBOT_VERSION"
+STATUS_TEXT_ENV_VAR = "TIKBOT_STATUS_TEXT"
+DEFAULT_STATUS_TEXT = "doomscrolling"
 SEMVER_TAG_PATTERN = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
 SEMVER_TAG_MATCH = "v[0-9]*.[0-9]*.[0-9]*"
 
@@ -70,5 +72,10 @@ def get_version_label():
     return f"v{get_version()}"
 
 
+def get_status_label():
+    status_text = (os.getenv(STATUS_TEXT_ENV_VAR) or DEFAULT_STATUS_TEXT).strip()
+    return status_text or DEFAULT_STATUS_TEXT
+
+
 def get_status_text():
-    return f"tik-tok channels | {get_version_label()}"
+    return f"{get_status_label()} | {get_version_label()}"

@@ -12,7 +12,7 @@ import tiktok_embed_fallback as tiktok_fallback_module
 from downloader import download_with_retries
 from calculator import calculateBitrate, calculateBitrateAudioOnly
 from validator import isSupportedUrl
-from version import _get_version_from_git, get_status_text, get_version, get_version_label
+from version import _get_version_from_git, get_status_label, get_status_text, get_version, get_version_label
 
 
 if not logging.getLogger().handlers:
@@ -157,11 +157,17 @@ class TestVersioning(unittest.TestCase):
 
     def test_get_status_text_uses_env_override(self):
         with mock.patch.dict(os.environ, {"TIKBOT_VERSION": "1.2.3"}):
-            self.assertEqual(get_status_text(), "tik-tok channels | v1.2.3")
+            self.assertEqual(get_status_text(), "doomscrolling | v1.2.3")
 
     def test_get_status_text_keeps_existing_v_prefix(self):
         with mock.patch.dict(os.environ, {"TIKBOT_VERSION": "v2.0.0"}):
-            self.assertEqual(get_status_text(), "tik-tok channels | v2.0.0")
+            self.assertEqual(get_status_text(), "doomscrolling | v2.0.0")
+
+    def test_get_status_label_uses_env_override(self):
+        with mock.patch.dict(os.environ, {"TIKBOT_STATUS_TEXT": "tik-tok channels"}):
+            with mock.patch("version.get_version_label", return_value="v9.9.9"):
+                self.assertEqual(get_status_label(), "tik-tok channels")
+                self.assertEqual(get_status_text(), "tik-tok channels | v9.9.9")
 
     def test_get_version_prefers_exact_git_tag(self):
         with mock.patch("version._run_git_command", side_effect=["v1.120.0"]):
@@ -176,7 +182,7 @@ class TestVersioning(unittest.TestCase):
 
         mock_change_presence.assert_awaited_once()
         activity = mock_change_presence.await_args.kwargs["activity"]
-        self.assertEqual(activity.name, "tik-tok channels | v3.4.5")
+        self.assertEqual(activity.name, "doomscrolling | v3.4.5")
 
 
 @unittest.skipIf(IS_GITHUB_ACTIONS, "Reddit integration tests are blocked on GitHub Actions")
@@ -473,9 +479,38 @@ class TestDownloaderFormatSelection(DownloaderTestCase):
             ['best[filesize<8M][format_id!*=portrait]/worst[format_id!*=portrait]', 'best']
         )
 
+    def test_get_format_candidates_for_youtube_short(self):
+        candidates = downloader_module._get_format_candidates(
+            "https://youtube.com/shorts/aSCz2JvMhck?si=RgZR6_GivuQWukcm"
+        )
+        self.assertEqual(
+            candidates,
+            ['bestvideo[filesize<7M]+bestaudio[filesize<1M]/bv*+ba/b/best[filesize<8M]', 'best']
+        )
+
+    def test_get_format_candidates_for_youtube_watch_url(self):
+        candidates = downloader_module._get_format_candidates(
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        )
+        self.assertEqual(
+            candidates,
+            ['bestvideo[filesize<7M]+bestaudio[filesize<1M]/bv*+ba/b/best[filesize<8M]', 'best']
+        )
+
     def test_create_opts_sets_format_sort_for_filesize(self):
         opts = downloader_module._create_ydl_opts('best[filesize<8M]/worst')
         self.assertEqual(opts['format'], 'best[filesize<8M]/worst')
+        self.assertIn('+filesize', opts['format_sort'])
+        self.assertEqual(opts['merge_output_format'], 'mp4')
+
+    def test_create_opts_sets_format_sort_for_youtube_merge_selector(self):
+        opts = downloader_module._create_ydl_opts(
+            'bestvideo[filesize<7M]+bestaudio[filesize<1M]/bv*+ba/b/best[filesize<8M]'
+        )
+        self.assertEqual(
+            opts['format'],
+            'bestvideo[filesize<7M]+bestaudio[filesize<1M]/bv*+ba/b/best[filesize<8M]'
+        )
         self.assertIn('+filesize', opts['format_sort'])
         self.assertEqual(opts['merge_output_format'], 'mp4')
 
