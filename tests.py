@@ -8,6 +8,7 @@ import shutil
 from unittest import mock
 
 import downloader as downloader_module
+import tiktok_embed_fallback as tiktok_fallback_module
 from downloader import download_with_retries
 from calculator import calculateBitrate, calculateBitrateAudioOnly
 from validator import isSupportedUrl
@@ -394,6 +395,69 @@ class TestDownloaderFormatSelection(DownloaderTestCase):
         opts = downloader_module._create_ydl_opts('bv*+ba/b')
         self.assertEqual(opts['format'], 'bv*+ba/b')
         self.assertEqual(opts['format_sort'], ['+codec:h264'])
+
+
+class TestTikTokPlaywrightFallback(unittest.TestCase):
+
+    def test_rejects_webvtt_payload_signature(self):
+        self.assertTrue(
+            tiktok_fallback_module._looks_like_webvtt_payload(
+                b"WEBVTT\n\n00:00:01.000 --> 00:00:02.000\ncaption text\n"
+            )
+        )
+        self.assertFalse(
+            tiktok_fallback_module._looks_like_webvtt_payload(
+                b"\x00\x00\x00\x20ftypisom\x00\x00\x02\x00isomiso2"
+            )
+        )
+
+    def test_extracts_video_candidates_from_html_and_ignores_non_video_urls(self):
+        html = r'''
+        <script>
+        {
+          "caption": "https:\u002F\u002Fv16-webapp.tiktok.com\u002Fvideo\u002Ftos\u002Fabc\u002F?a=1&item_id=123&format=webvtt",
+          "play": "https:\u002F\u002Fv16-webapp-prime.tiktok.com\u002Fvideo\u002Ftos\u002Fabc\u002F?a=1&item_id=123&mime_type=video_mp4",
+          "avatar": "https:\u002F\u002Fp16-sign.tiktokcdn.com\u002Favatar.jpeg"
+        }
+        </script>
+        '''
+        self.assertEqual(
+            tiktok_fallback_module._extract_tiktok_media_urls_from_html(html, "123"),
+            [
+                "https://v16-webapp.tiktok.com/video/tos/abc/?a=1&item_id=123&format=webvtt",
+                "https://v16-webapp-prime.tiktok.com/video/tos/abc/?a=1&item_id=123&mime_type=video_mp4",
+            ],
+        )
+
+    def test_rejects_vtt_media_response(self):
+        self.assertFalse(
+            tiktok_fallback_module._is_downloadable_tiktok_video_response(
+                "https://v16-webapp-prime.tiktokcdn.com/abc/subtitles/en.vtt?item_id=123",
+                "text/vtt",
+                "media",
+                "123",
+            )
+        )
+
+    def test_accepts_mp4_media_response(self):
+        self.assertTrue(
+            tiktok_fallback_module._is_downloadable_tiktok_video_response(
+                "https://v16-webapp-prime.tiktokcdn.com/video/tos/useast5/tos-useast5-pve-0068-tx/o8.mp4?item_id=123",
+                "video/mp4",
+                "media",
+                "123",
+            )
+        )
+
+    def test_rejects_caption_url_even_with_generic_binary_content_type(self):
+        self.assertFalse(
+            tiktok_fallback_module._is_downloadable_tiktok_video_response(
+                "https://v16-webapp-prime.tiktokcdn.com/caption/file.vtt?item_id=123",
+                "application/octet-stream",
+                "fetch",
+                "123",
+            )
+        )
 
 if __name__ == '__main__':
     unittest.main()
