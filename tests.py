@@ -86,11 +86,15 @@ class DownloaderTestCase(unittest.TestCase):
 
 
 class _FakeChannel:
-    def __init__(self):
+    def __init__(self, name="tik-tok-test"):
         self.sent = []
+        self.name = name
 
     async def send(self, content=None, **kwargs):
         self.sent.append({"content": content, "file": kwargs.get("file")})
+
+    async def fetch_message(self, _message_id):
+        return None
 
 
 class _FakeAuthor:
@@ -99,10 +103,42 @@ class _FakeAuthor:
 
 
 class _FakeMessage:
-    def __init__(self):
+    def __init__(self, content=""):
         self.channel = _FakeChannel()
         self.author = _FakeAuthor()
         self.id = 1
+        self.content = content
+
+
+class TestMessageHandling(unittest.TestCase):
+
+    def test_handleMessage_uses_repost_bypass_emoji(self):
+        from main import handleMessage
+
+        message = _FakeMessage("👾 https://www.tiktok.com/@test/video/123")
+        download_response = {
+            'fileName': '',
+            'duration': 10,
+            'messages': '',
+            'videoId': '123',
+            'platform': 'tiktok',
+            'repost': False,
+            'repostOriginalMesssageId': '',
+        }
+
+        with mock.patch("main.extractUrl", return_value={"url": "https://www.tiktok.com/@test/video/123", "messages": ""}):
+            with mock.patch("main.isSupportedUrl", return_value={"supported": "true", "messages": "", "silentMode": False}):
+                with mock.patch("main.download_with_retries", return_value=download_response) as mock_download:
+                    with mock.patch("main.process_video", new=mock.AsyncMock()) as mock_process_video:
+                        asyncio.run(handleMessage(message))
+
+        mock_download.assert_called_once_with(
+            "https://www.tiktok.com/@test/video/123",
+            retries=4,
+            on_retry=mock.ANY,
+            detect_repost=False,
+        )
+        mock_process_video.assert_awaited_once()
 
 
 @unittest.skipIf(IS_GITHUB_ACTIONS, "Reddit integration tests are blocked on GitHub Actions")

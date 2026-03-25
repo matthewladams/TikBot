@@ -13,6 +13,7 @@ from dbInteraction import savePost, doesPostExist
 from concurrent.futures import ThreadPoolExecutor
 
 SKIP_STRINGS = ['🙅‍♂️', '🙅‍♀️', '❌']
+REPOST_BYPASS_STRINGS = ['👾']
 
 load_dotenv()
 
@@ -346,6 +347,8 @@ async def handleMessage(message):
             if messages.startswith("Reddit"):
                 await message.channel.send(messages)
 
+        detectRepost = not any(bypass_str in message.content for bypass_str in REPOST_BYPASS_STRINGS)
+
         # Download with retries
         downloadResponse = {'fileName': '', 'duration': 0, 'messages': '', 'videoId': '', 'repost': False, 'repostOriginalMesssageId': ''}
 
@@ -356,7 +359,12 @@ async def handleMessage(message):
                 )
 
         try:
-            downloadResponse = download_with_retries(url, retries=4, on_retry=notify_retry)
+            downloadResponse = download_with_retries(
+                url,
+                retries=4,
+                on_retry=notify_retry,
+                detect_repost=detectRepost,
+            )
         except Exception as e:
             await send_error_message(
                 message.channel,
