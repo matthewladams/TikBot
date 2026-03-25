@@ -1,6 +1,9 @@
 # Use an official Python image
 FROM python:3.14-slim
 
+ARG TIKBOT_VERSION=1.96.0
+ENV TIKBOT_VERSION=${TIKBOT_VERSION}
+
 # Set the working directory
 WORKDIR /usr/src/app
 
@@ -32,6 +35,7 @@ COPY downloader.py .
 COPY main.py .
 COPY tiktok_embed_fallback.py .
 COPY validator.py .
+COPY version.py .
 
 # Set the default command to run your app, assuming main.py is the entry point
 CMD ["python", "main.py"]

@@ -28,6 +28,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.ref }}
+          fetch-depth: 0
+
+      - name: Determine app version
+        id: app_version
+        run: echo "version=$(python3 -c 'from version import get_version; print(get_version())')" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -45,6 +50,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=ref,event=tag
+            type=raw,value=${{ steps.app_version.outputs.version }}
             type=sha
             type=raw,value=latest,enable={{is_default_branch}}
 
@@ -53,5 +59,7 @@ jobs:
         with:
           context: .
           push: true
+          build-args: |
+            TIKBOT_VERSION=${{ steps.app_version.outputs.version }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

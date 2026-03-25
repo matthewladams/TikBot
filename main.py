@@ -11,6 +11,7 @@ from compressionMessages import getCompressionMessage
 from validator import extractUrl, isSupportedUrl
 from dbInteraction import savePost, doesPostExist
 from concurrent.futures import ThreadPoolExecutor
+from version import get_status_text, get_version_label
 
 SKIP_STRINGS = ['🙅‍♂️', '🙅‍♀️', '❌']
 REPOST_BYPASS_STRINGS = ['👾']
@@ -40,6 +41,12 @@ def get_transcode_scale_filter(video_bitrate_kbps):
     # Avoid upscaling, and drop long low-bitrate videos to 480p for better visual quality.
     max_height = 480 if video_bitrate_kbps <= 320 else 720
     return f"scale=-2:min({max_height}\\,ih)"
+
+
+async def update_presence():
+    activity = discord.Game(name=get_status_text())
+    await client.change_presence(activity=activity)
+    logger.info("Presence updated to %s", activity.name)
 
 async def send_error_message(channel, error_message, exception=None):
     """Sends a user-friendly error message to the Discord channel"""
@@ -431,7 +438,11 @@ async def handleMessage(message):
 
 @client.event
 async def on_ready():
-    logger.info('We have logged in as %s', client.user)
+    logger.info('We have logged in as %s (%s)', client.user, get_version_label())
+    try:
+        await update_presence()
+    except Exception as e:
+        logger.warning("Failed to update Discord presence: %s", e)
 
 @client.event
 async def on_message(message):

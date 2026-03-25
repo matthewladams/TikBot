@@ -12,6 +12,7 @@ import tiktok_embed_fallback as tiktok_fallback_module
 from downloader import download_with_retries
 from calculator import calculateBitrate, calculateBitrateAudioOnly
 from validator import isSupportedUrl
+from version import _get_version_from_git, get_status_text, get_version, get_version_label
 
 
 if not logging.getLogger().handlers:
@@ -139,6 +140,43 @@ class TestMessageHandling(unittest.TestCase):
             detect_repost=False,
         )
         mock_process_video.assert_awaited_once()
+
+
+class TestVersioning(unittest.TestCase):
+
+    def test_get_version_uses_default_when_env_missing(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with mock.patch("version._get_version_from_git", return_value=None):
+                self.assertEqual(get_version(), "1.96.0")
+                self.assertEqual(get_version_label(), "v1.96.0")
+
+    def test_get_version_uses_git_commit_count_when_env_missing(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with mock.patch("version._run_git_command", side_effect=[None, "96"]):
+                self.assertEqual(_get_version_from_git(), "1.96.0")
+
+    def test_get_status_text_uses_env_override(self):
+        with mock.patch.dict(os.environ, {"TIKBOT_VERSION": "1.2.3"}):
+            self.assertEqual(get_status_text(), "tik-tok channels | v1.2.3")
+
+    def test_get_status_text_keeps_existing_v_prefix(self):
+        with mock.patch.dict(os.environ, {"TIKBOT_VERSION": "v2.0.0"}):
+            self.assertEqual(get_status_text(), "tik-tok channels | v2.0.0")
+
+    def test_get_version_prefers_exact_git_tag(self):
+        with mock.patch("version._run_git_command", side_effect=["v1.120.0"]):
+            self.assertEqual(_get_version_from_git(), "1.120.0")
+
+    def test_on_ready_updates_presence_with_version(self):
+        import main
+
+        with mock.patch.dict(os.environ, {"TIKBOT_VERSION": "3.4.5"}):
+            with mock.patch.object(main.client, "change_presence", new=mock.AsyncMock()) as mock_change_presence:
+                asyncio.run(main.on_ready())
+
+        mock_change_presence.assert_awaited_once()
+        activity = mock_change_presence.await_args.kwargs["activity"]
+        self.assertEqual(activity.name, "tik-tok channels | v3.4.5")
 
 
 @unittest.skipIf(IS_GITHUB_ACTIONS, "Reddit integration tests are blocked on GitHub Actions")
