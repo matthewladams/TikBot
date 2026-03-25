@@ -35,6 +35,11 @@ def get_file_size_limit():
     except ValueError:
         return 8_000_000
 
+def get_transcode_scale_filter(video_bitrate_kbps):
+    # Avoid upscaling, and drop long low-bitrate videos to 480p for better visual quality.
+    max_height = 480 if video_bitrate_kbps <= 320 else 720
+    return f"scale=-2:min({max_height}\\,ih)"
+
 async def send_error_message(channel, error_message, exception=None):
     """Sends a user-friendly error message to the Discord channel"""
     base_message = f"😅 Oops! {error_message}"
@@ -171,22 +176,22 @@ async def send_compressed_video(message, fileName, duration, file_size_limit, do
         )
 
         try:
-            # Adjust FFmpeg settings for better control
+            # Target HEVC-in-MP4 for better compression while keeping Discord-friendly playback flags.
             output_kwargs = {
-                'c:v': 'libx265',              # H.265 codec for better compression
+                'c:v': 'libx265',
                 'b:v': f"{calcResult.videoBitrate}k",
-                'maxrate': f"{calcResult.videoBitrate}k",  # Enforce maximum bitrate
-                'c:a': 'aac',                  # AAC is widely supported for audio
+                'maxrate': f"{calcResult.videoBitrate}k",
+                'c:a': 'aac',
                 'b:a': f"{calcResult.audioBitrate}k",
                 'bufsize': f"{2 * calcResult.videoBitrate}k",
-                'vf': 'scale=-2:720',          # Scale to 720p while maintaining aspect ratio
+                'vf': get_transcode_scale_filter(calcResult.videoBitrate),
                 'pix_fmt': 'yuv420p',
                 'profile:v': 'main',
-                'tag:v': 'hvc1',               # iOS-friendly HEVC tag
-                'preset': 'fast',            # Balance between speed and compression
-                'fs': int(file_size_limit),    # Hard cap file length
-                'movflags': '+faststart',      # Make MP4 streamable
-                'f': 'mp4',                    # Container format for H.265
+                'tag:v': 'hvc1',
+                'preset': 'medium',
+                'fs': int(file_size_limit),
+                'movflags': '+faststart',
+                'f': 'mp4',
             }
             if calcResult.maxDuration:
                 output_kwargs['t'] = calcResult.maxDuration

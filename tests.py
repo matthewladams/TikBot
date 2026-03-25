@@ -321,12 +321,26 @@ class TestCalculator(unittest.TestCase):
         self.assertLessEqual(result.audioBitrate, 320)  # Maximum audio bitrate
         self.assertTrue(result.durationLimited)
 
+    def test_calculateBitrate_three_minute_clip_limit(self):
+        """Test calculateBitrate keeps common 3-minute clips without truncation"""
+        duration = 181
+        result = calculateBitrate(duration)
+        self.assertFalse(result.durationLimited)
+        self.assertEqual(result.maxDuration, duration)
+
+    def test_calculateBitrate_above_three_minute_clip_limit(self):
+        """Test calculateBitrate truncates above the configured common 3-minute limit"""
+        duration = 182
+        result = calculateBitrate(duration)
+        self.assertTrue(result.durationLimited)
+        self.assertEqual(result.maxDuration, 181)
+
     def test_calculateBitrate_duration_limited(self):
         """Test calculateBitrate when duration is too long for quality"""
         duration = 10000  # Very long duration
         result = calculateBitrate(duration)
-        self.assertEqual(result.videoBitrate, 300)  # Minimum video bitrate
-        self.assertGreaterEqual(result.audioBitrate, 64)  # Minimum audio bitrate
+        self.assertEqual(result.videoBitrate, 260)
+        self.assertEqual(result.audioBitrate, 64)
         self.assertLessEqual(result.audioBitrate, 320)  # Maximum audio bitrate
         self.assertTrue(result.durationLimited)
 

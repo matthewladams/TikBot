@@ -1,3 +1,12 @@
+MAX_TRANSCODE_DURATION_SECONDS = 181
+TRANSCODE_DATA_BUDGET_KILOBITS = (7 * 1024 * 1024 * 8) / 1000
+MIN_VIDEO_BITRATE_KBPS = 150
+MIN_AUDIO_BITRATE_KBPS = 32
+MAX_VIDEO_BITRATE_KBPS = 800
+MAX_AUDIO_BITRATE_KBPS = 320
+MIN_DURATION_LIMITED_VIDEO_BITRATE_KBPS = 256
+MIN_DURATION_LIMITED_AUDIO_BITRATE_KBPS = 64
+
 class CalculationResult:
     videoBitrate: int
     audioBitrate: int
@@ -13,22 +22,42 @@ def calculateBitrate(duration: int) -> CalculationResult:
     result.durationLimited = False
     result.maxDuration = duration  # Default to the input duration
 
-    # Total data budget in kilobits (7.5 MB * 8 bits per byte / 1000 to convert to kilobits)
-    totalDataBudgetKilobits = (7 * 1024 * 1024 * 8) / 1000
+    effectiveDuration = duration
 
-    if duration != 0:
+    if duration > MAX_TRANSCODE_DURATION_SECONDS:
+        result.durationLimited = True
+        result.maxDuration = MAX_TRANSCODE_DURATION_SECONDS
+        effectiveDuration = MAX_TRANSCODE_DURATION_SECONDS
+
+    if effectiveDuration != 0:
         # Calculate maximum allowable total bitrate
-        maxTotalBitrate = totalDataBudgetKilobits / duration
+        maxTotalBitrate = TRANSCODE_DATA_BUDGET_KILOBITS / effectiveDuration
+        minAudioBitrate = (
+            MIN_DURATION_LIMITED_AUDIO_BITRATE_KBPS
+            if result.durationLimited
+            else MIN_AUDIO_BITRATE_KBPS
+        )
+        minVideoBitrate = (
+            MIN_DURATION_LIMITED_VIDEO_BITRATE_KBPS
+            if result.durationLimited
+            else MIN_VIDEO_BITRATE_KBPS
+        )
 
         # Calculate minimum acceptable bitrate
-        minTotalBitrate = 300 + 64  # Minimum video + minimum audio
+        minTotalBitrate = (
+            MIN_DURATION_LIMITED_VIDEO_BITRATE_KBPS
+            + MIN_DURATION_LIMITED_AUDIO_BITRATE_KBPS
+        )
 
         # Check if we're duration limited
         if maxTotalBitrate < minTotalBitrate:
-            result.videoBitrate = 300
-            result.audioBitrate = 64
+            result.videoBitrate = MIN_DURATION_LIMITED_VIDEO_BITRATE_KBPS
+            result.audioBitrate = MIN_DURATION_LIMITED_AUDIO_BITRATE_KBPS
             result.durationLimited = True
-            result.maxDuration = int(totalDataBudgetKilobits / minTotalBitrate)
+            result.maxDuration = min(
+                MAX_TRANSCODE_DURATION_SECONDS,
+                int(TRANSCODE_DATA_BUDGET_KILOBITS / minTotalBitrate),
+            )
             return result
 
         # Reserve 10% of the total bitrate for audio
@@ -36,19 +65,31 @@ def calculateBitrate(duration: int) -> CalculationResult:
         maxVideoBitrate = maxTotalBitrate * 0.9
 
         # Ensure audio bitrate is within 32-320 kbps
-        result.audioBitrate = max(32, min(round(maxAudioBitrate), 320))
+        result.audioBitrate = max(
+            minAudioBitrate,
+            min(round(maxAudioBitrate), MAX_AUDIO_BITRATE_KBPS),
+        )
 
         # Ensure video bitrate is not below 150 kbps and does not exceed its budget
-        result.videoBitrate = max(150, min(round(maxVideoBitrate), 800))
+        result.videoBitrate = max(
+            minVideoBitrate,
+            min(round(maxVideoBitrate), MAX_VIDEO_BITRATE_KBPS),
+        )
 
         # Recalculate total bitrate and adjust if necessary
         totalBitrate = result.videoBitrate + result.audioBitrate
         if totalBitrate > maxTotalBitrate:
             excessBitrate = totalBitrate - maxTotalBitrate
-            result.videoBitrate = max(150, result.videoBitrate - round(excessBitrate))
+            result.videoBitrate = max(
+                minVideoBitrate,
+                result.videoBitrate - round(excessBitrate),
+            )
 
             # Mark as duration limited if video bitrate was reduced to the minimum
-            if result.videoBitrate == 150 and result.audioBitrate == 32:
+            if (
+                result.videoBitrate == minVideoBitrate
+                and result.audioBitrate == minAudioBitrate
+            ):
                 result.durationLimited = True
 
     return result
