@@ -485,7 +485,7 @@ class TestDownloaderFormatSelection(DownloaderTestCase):
         )
         self.assertEqual(
             candidates,
-            ['bestvideo[filesize<7M]+bestaudio[filesize<1M]/bv*+ba/b/best[filesize<8M]', 'best']
+            ['bestvideo[ext=mp4][filesize<7M]+bestaudio[ext=m4a][filesize<1050K]/b[ext=mp4][filesize<8M]/best[filesize<8M]', 'best']
         )
 
     def test_get_format_candidates_for_youtube_watch_url(self):
@@ -494,7 +494,7 @@ class TestDownloaderFormatSelection(DownloaderTestCase):
         )
         self.assertEqual(
             candidates,
-            ['bestvideo[filesize<7M]+bestaudio[filesize<1M]/bv*+ba/b/best[filesize<8M]', 'best']
+            ['bestvideo[ext=mp4][filesize<7M]+bestaudio[ext=m4a][filesize<1050K]/b[ext=mp4][filesize<8M]/best[filesize<8M]', 'best']
         )
 
     def test_create_opts_sets_format_sort_for_filesize(self):
@@ -505,13 +505,13 @@ class TestDownloaderFormatSelection(DownloaderTestCase):
 
     def test_create_opts_sets_format_sort_for_youtube_merge_selector(self):
         opts = downloader_module._create_ydl_opts(
-            'bestvideo[filesize<7M]+bestaudio[filesize<1M]/bv*+ba/b/best[filesize<8M]'
+            'bestvideo[ext=mp4][filesize<7M]+bestaudio[ext=m4a][filesize<1050K]/b[ext=mp4][filesize<8M]/best[filesize<8M]'
         )
         self.assertEqual(
             opts['format'],
-            'bestvideo[filesize<7M]+bestaudio[filesize<1M]/bv*+ba/b/best[filesize<8M]'
+            'bestvideo[ext=mp4][filesize<7M]+bestaudio[ext=m4a][filesize<1050K]/b[ext=mp4][filesize<8M]/best[filesize<8M]'
         )
-        self.assertIn('+filesize', opts['format_sort'])
+        self.assertEqual(opts['format_sort'], ['+codec:h264'])
         self.assertEqual(opts['merge_output_format'], 'mp4')
 
     def test_create_opts_sets_format_sort_for_reddit_merge(self):
