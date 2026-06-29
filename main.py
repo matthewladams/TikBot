@@ -113,6 +113,13 @@ async def process_video(message, fileName, duration, file_size_limit, downloadRe
         # Check for unsupported codec
         probe = ffmpeg.probe(fileName)
         video_streams = [stream for stream in probe["streams"] if stream["codec_type"] == "video"]
+
+        if not video_streams:
+            await send_error_message(
+                message.channel,
+                "Downloaded media did not contain a video stream."
+            )
+            return
         
         isUnsupportedCodec = not any(track["codec_name"] in ["h264", "hevc"] for track in video_streams)
 

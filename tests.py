@@ -68,6 +68,12 @@ class TestUrlParser(unittest.TestCase):
         supportedResponse = isSupportedUrl(url)
         self.assertEqual(supportedResponse["supported"], 'false')
 
+    def test_kkclip_reel_is_supported_as_instagram(self):
+        url = "https://www.kkclip.com/reel/DaFy7GYIKI5/?utm_source=ig_web_copy_link"
+        with mock.patch.dict(os.environ, {"TIKBOT_AUTO_DOMAINS": "instagram"}):
+            supportedResponse = isSupportedUrl(url)
+        self.assertEqual(supportedResponse["supported"], 'true')
+
 IS_GITHUB_ACTIONS = os.getenv("GITHUB_ACTIONS") == "true"
 PLAYWRIGHT_TEST_ENABLED = os.getenv("TIKBOT_ENABLE_PLAYWRIGHT_TEST") == "1"
 
@@ -140,6 +146,30 @@ class TestMessageHandling(unittest.TestCase):
             detect_repost=False,
         )
         mock_process_video.assert_awaited_once()
+
+    def test_process_video_rejects_audio_only_download(self):
+        from main import process_video
+
+        message = _FakeMessage()
+        with mock.patch("main.os.stat") as mock_stat:
+            mock_stat.return_value.st_size = 1000
+            with mock.patch(
+                "main.ffmpeg.probe",
+                return_value={"streams": [{"codec_type": "audio", "codec_name": "aac"}]},
+                create=True,
+            ):
+                asyncio.run(
+                    process_video(
+                        message,
+                        "audio-only.m4a",
+                        60,
+                        8_000_000,
+                        {"videoId": "123", "platform": "tiktok"},
+                    )
+                )
+
+        sent_text = [item["content"] for item in message.channel.sent if item["content"]]
+        self.assertTrue(any("did not contain a video stream" in text for text in sent_text))
 
 
 class TestVersioning(unittest.TestCase):
@@ -469,7 +499,14 @@ class TestDownloaderFormatSelection(DownloaderTestCase):
         candidates = downloader_module._get_format_candidates("https://www.reddit.com/r/test/")
         self.assertEqual(
             candidates,
-            ['best[filesize<8M]/worst', 'bv*+ba/b', 'best']
+            ['best[filesize<8M][vcodec!=none]/worst[vcodec!=none]', 'bv*+ba/b', 'best']
+        )
+
+    def test_get_format_candidates_for_tiktok_requires_video(self):
+        candidates = downloader_module._get_format_candidates("https://vt.tiktok.com/ZSCDC8bDV/")
+        self.assertEqual(
+            candidates,
+            ['best[filesize<8M][vcodec!=none]/worst[vcodec!=none]', 'best']
         )
 
     def test_get_format_candidates_for_twitch(self):
@@ -498,8 +535,8 @@ class TestDownloaderFormatSelection(DownloaderTestCase):
         )
 
     def test_create_opts_sets_format_sort_for_filesize(self):
-        opts = downloader_module._create_ydl_opts('best[filesize<8M]/worst')
-        self.assertEqual(opts['format'], 'best[filesize<8M]/worst')
+        opts = downloader_module._create_ydl_opts('best[filesize<8M][vcodec!=none]/worst[vcodec!=none]')
+        self.assertEqual(opts['format'], 'best[filesize<8M][vcodec!=none]/worst[vcodec!=none]')
         self.assertIn('+filesize', opts['format_sort'])
         self.assertEqual(opts['merge_output_format'], 'mp4')
 
@@ -518,6 +555,60 @@ class TestDownloaderFormatSelection(DownloaderTestCase):
         opts = downloader_module._create_ydl_opts('bv*+ba/b')
         self.assertEqual(opts['format'], 'bv*+ba/b')
         self.assertEqual(opts['format_sort'], ['+codec:h264'])
+
+    def test_get_alternate_urls_maps_kkclip_reels_to_instagram(self):
+        alternates = downloader_module._get_alternate_urls(
+            "https://www.kkclip.com/reel/DaFy7GYIKI5/?utm_source=ig_web_copy_link",
+            "instagram",
+        )
+        self.assertEqual(
+            alternates,
+            [("https://www.instagram.com/reel/DaFy7GYIKI5/", "instagram-canonical")]
+        )
+
+    def test_resolve_kkclip_embed_media_url_accepts_direct_video_redirect(self):
+        response = mock.Mock()
+        response.url = "https://scontent.cdninstagram.com/o1/v/t16/f2/m86/video.mp4"
+        response.headers = {"content-type": "video/mp4"}
+        response.close = mock.Mock()
+
+        with mock.patch("downloader.requests.get", return_value=response) as mock_get:
+            resolved = downloader_module._resolve_kkclip_embed_media_url(
+                "https://www.kkclip.com/reel/DaFy7GYIKI5/"
+            )
+
+        self.assertEqual(resolved, response.url)
+        response.close.assert_called_once()
+        mock_get.assert_called_once()
+
+    def test_resolve_kkclip_embed_media_url_rejects_image_redirect(self):
+        response = mock.Mock()
+        response.url = "https://scontent.cdninstagram.com/v/t51/image.jpg"
+        response.headers = {"content-type": "image/jpeg"}
+        response.close = mock.Mock()
+
+        with mock.patch("downloader.requests.get", return_value=response):
+            resolved = downloader_module._resolve_kkclip_embed_media_url(
+                "https://kkclip.com/open/ig/1/DaFy7GYIKI5"
+            )
+
+        self.assertIsNone(resolved)
+
+    def test_downloaded_file_has_video_uses_requested_formats(self):
+        self.assertTrue(
+            downloader_module._downloaded_file_has_video(
+                {"requested_formats": [{"vcodec": "none"}, {"vcodec": "h264"}]},
+                "unused.mp4",
+            )
+        )
+
+    def test_downloaded_file_has_video_rejects_audio_only_metadata(self):
+        self.assertFalse(
+            downloader_module._downloaded_file_has_video(
+                {"vcodec": "none"},
+                "unused.m4a",
+            )
+        )
 
 
 class TestTikTokPlaywrightFallback(unittest.TestCase):

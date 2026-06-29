@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 KNOWN_PLATFORMS = {
     'youtube': ('youtube.com', 'youtu.be'),
     'tiktok': ('tiktok.com',),
-    'instagram': ('instagram.com',),
+    'instagram': ('instagram.com', 'kkclip.com', 'kkinstagram.com'),
     'reddit': ('reddit.com', 'redd.it'),
     'twitch': ('twitch.tv',),
 }
@@ -45,17 +45,18 @@ def isSupportedUrl(url):
     response = {'url':  '', 'supported': 'false', 'messages': '', 'silentMode': False}
     
     envDomains = os.getenv('TIKBOT_AUTO_DOMAINS')
+    platform = normalize_platform(url)
 
     redditDomains = ['reddit', 'redd.it']
 
     if(envDomains is None):
         print("Using default supported domains list")
-        if normalize_platform(url) in DEFAULT_SUPPORTED_PLATFORMS:
+        if platform in DEFAULT_SUPPORTED_PLATFORMS:
             response['supported'] = 'true'
     else:
         supportedDomains = envDomains.split(" ")
         for domain in supportedDomains:
-            if(domain in url):
+            if(domain == platform or domain in url):
                 response['supported'] = 'true'
     
     silentDomains = os.getenv('TIKBOT_SILENT_DOMAINS')
@@ -63,7 +64,7 @@ def isSupportedUrl(url):
     if(silentDomains is not None):
         silentDomains = silentDomains.split(" ")
         for domain in silentDomains:
-            if(domain in url):
+            if(domain == platform or domain in url):
                 response['silentMode'] = True
     
     if(response['supported'] == 'true' or response['silentMode'] == True):

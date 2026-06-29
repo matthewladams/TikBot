@@ -1,10 +1,14 @@
 import logging
 import os
+import re
 import shutil
 import time
 from datetime import datetime
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
+import ffmpeg
+import requests
 import yt_dlp
 from yt_dlp.networking.impersonate import ImpersonateTarget
 from yt_dlp.utils import DownloadError
@@ -14,6 +18,12 @@ from validator import normalize_platform
 from tiktok_embed_fallback import download_tiktok_embed_video_playwright, get_tiktok_embed_url
 
 logger = logging.getLogger(__name__)
+
+_KKCLIP_REEL_RE = re.compile(r"/(?:reel|p|tv)/(?P<shortcode>[^/?#]+)", re.IGNORECASE)
+_META_MEDIA_RE = re.compile(
+    r'<meta[^>]+(?:property|name)=["\'](?:og:video(?::secure_url)?|twitter:player:stream)["\'][^>]+content=["\'](?P<url>[^"\']+)["\']',
+    re.IGNORECASE,
+)
 
 class _YtdlpLogger:
     def __init__(self, base_logger: logging.Logger):
@@ -44,10 +54,12 @@ def _get_format_candidates(video_url: str) -> list[str]:
     if 'youtube.com' in lowered_url or 'youtu.be' in lowered_url:
         # Prefer a higher-quality MP4/M4A pair that still fits under Discord's upload budget.
         candidates.append('bestvideo[ext=mp4][filesize<7M]+bestaudio[ext=m4a][filesize<1050K]/b[ext=mp4][filesize<8M]/best[filesize<8M]')
+    elif 'tiktok.com' in lowered_url:
+        candidates.append('best[filesize<8M][vcodec!=none]/worst[vcodec!=none]')
     elif 'twitch.tv' in lowered_url:
         candidates.append('best[filesize<8M][format_id!*=portrait]/worst[format_id!*=portrait]')
     else:
-        candidates.append('best[filesize<8M]/worst')
+        candidates.append('best[filesize<8M][vcodec!=none]/worst[vcodec!=none]')
 
     if 'reddit.com' in lowered_url:
         # Reddit often provides separate audio/video streams. Fallback to merging them.
@@ -57,6 +69,86 @@ def _get_format_candidates(video_url: str) -> list[str]:
         candidates.append('best')
 
     return candidates
+
+
+def _get_alternate_urls(video_url: str, platform: str) -> list[tuple[str, str]]:
+    """Return equivalent URLs that yt-dlp is more likely to understand."""
+    parsed = urlparse(video_url if '://' in video_url else f"https://{video_url}")
+    host = parsed.netloc.split('@')[-1].split(':')[0].lower()
+    alternates: list[tuple[str, str]] = []
+
+    if platform == 'instagram' and (host == 'kkclip.com' or host.endswith('.kkclip.com') or host == 'kkinstagram.com' or host.endswith('.kkinstagram.com')):
+        match = _KKCLIP_REEL_RE.search(parsed.path)
+        if match:
+            shortcode = match.group('shortcode')
+            alternates.append((f"https://www.instagram.com/reel/{shortcode}/", "instagram-canonical"))
+
+    return alternates
+
+
+def _is_kkclip_host(host: str) -> bool:
+    return (
+        host == 'kkclip.com'
+        or host.endswith('.kkclip.com')
+        or host == 'kkinstagram.com'
+        or host.endswith('.kkinstagram.com')
+    )
+
+
+def _looks_like_direct_video_url(url: str, content_type: str | None = None) -> bool:
+    parsed = urlparse(url)
+    lowered_path = parsed.path.lower()
+    lowered_content_type = (content_type or '').lower().split(';', 1)[0].strip()
+    return lowered_content_type.startswith('video/') or lowered_path.endswith(('.mp4', '.mov', '.webm', '.m4v'))
+
+
+def _get_kkclip_probe_urls(video_url: str) -> list[str]:
+    parsed = urlparse(video_url if '://' in video_url else f"https://{video_url}")
+    probe_urls = [video_url]
+
+    match = _KKCLIP_REEL_RE.search(parsed.path)
+    if match:
+        shortcode = match.group('shortcode')
+        probe_urls.append(f"https://www.kkinstagram.com/reel/{shortcode}/")
+
+    return list(dict.fromkeys(probe_urls))
+
+
+def _resolve_kkclip_embed_media_url(video_url: str) -> str | None:
+    parsed = urlparse(video_url if '://' in video_url else f"https://{video_url}")
+    host = parsed.netloc.split('@')[-1].split(':')[0].lower()
+    if not _is_kkclip_host(host):
+        return None
+
+    headers = {
+        'User-Agent': 'Discordbot/2.0',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,video/*;q=0.8,*/*;q=0.7',
+    }
+
+    for probe_url in _get_kkclip_probe_urls(video_url):
+        try:
+            response = requests.get(probe_url, headers=headers, allow_redirects=True, timeout=15, stream=True)
+        except requests.RequestException as exc:
+            logger.info("Failed to resolve kkclip embed media URL %s: %s", probe_url, exc)
+            continue
+
+        try:
+            content_type = response.headers.get('content-type')
+            if _looks_like_direct_video_url(response.url, content_type):
+                logger.info("Resolved kkclip embed media URL %s -> %s", probe_url, response.url)
+                return response.url
+
+            if content_type and 'text/html' in content_type.lower():
+                body = response.raw.read(200_000, decode_content=True).decode(response.encoding or 'utf-8', errors='ignore')
+                for match in _META_MEDIA_RE.finditer(body):
+                    media_url = match.group('url').replace('&amp;', '&')
+                    if _looks_like_direct_video_url(media_url):
+                        logger.info("Resolved kkclip meta media URL %s -> %s", probe_url, media_url)
+                        return media_url
+        finally:
+            response.close()
+
+    return None
 
 
 def _create_ydl_opts(format_selection: str) -> dict:
@@ -181,6 +273,35 @@ def _normalize_downloaded_extension(video: dict, filepath: str) -> str:
     return filepath
 
 
+def _metadata_value_has_video(value) -> bool | None:
+    if value is None:
+        return None
+    return str(value).lower() not in ('', 'none', 'unknown')
+
+
+def _downloaded_file_has_video(video: dict, filepath: str) -> bool:
+    requested_formats = video.get('requested_formats') or []
+    if requested_formats:
+        return any(_metadata_value_has_video(fmt.get('vcodec')) for fmt in requested_formats)
+
+    requested_downloads = video.get('requested_downloads') or []
+    for requested_download in requested_downloads:
+        has_video = _metadata_value_has_video(requested_download.get('vcodec'))
+        if has_video is not None:
+            return has_video
+
+    has_video = _metadata_value_has_video(video.get('vcodec'))
+    if has_video is not None:
+        return has_video
+
+    try:
+        probe = ffmpeg.probe(filepath)
+        return any(stream.get('codec_type') == 'video' for stream in probe.get('streams', []))
+    except Exception as exc:
+        logger.warning("Failed to probe downloaded file for video streams (%s): %s", filepath, exc)
+        return False
+
+
 def download(videoUrl: str, detect_repost: bool = True):
     response = {
         'fileName': '',
@@ -212,11 +333,46 @@ def download(videoUrl: str, detect_repost: bool = True):
         duration = video.get('duration') if isinstance(video, dict) else None
         file_missing = not downloaded_filepath or not os.path.exists(downloaded_filepath)
         file_empty = bool(downloaded_filepath) and os.path.exists(downloaded_filepath) and os.path.getsize(downloaded_filepath) == 0
-        if file_missing or file_empty or not duration:
-            logger.warning("TikTok direct download produced no usable file; retrying fallbacks")
+        lacks_video = not file_missing and not file_empty and not _downloaded_file_has_video(video, downloaded_filepath)
+        if file_missing or file_empty or lacks_video or not duration:
+            logger.warning(
+                "TikTok direct download produced no usable video (missing=%s, empty=%s, lacks_video=%s, duration=%s); retrying fallbacks",
+                file_missing,
+                file_empty,
+                lacks_video,
+                duration,
+            )
+            if downloaded_filepath and os.path.exists(downloaded_filepath):
+                try:
+                    os.remove(downloaded_filepath)
+                except OSError:
+                    logger.warning("Failed to remove unusable TikTok download %s", downloaded_filepath, exc_info=True)
             result = None
             selected_format = None
-            last_exception = last_exception or Exception("TikTok direct download produced no usable file")
+            last_exception = last_exception or Exception("TikTok direct download produced no usable video")
+
+    if result is None and response['platform'] == 'instagram':
+        embed_media_url = _resolve_kkclip_embed_media_url(videoUrl)
+        if embed_media_url:
+            result, selected_format, last_exception = _attempt_download(
+                embed_media_url,
+                attempted_formats,
+                label='kkclip-embed-media'
+            )
+            if result is not None:
+                download_method = "yt-dlp-kkclip-embed-media"
+
+    if result is None:
+        for alternate_url, alternate_label in _get_alternate_urls(videoUrl, response['platform']):
+            logger.info("Direct download failed; retrying with alternate URL %s", alternate_url)
+            result, selected_format, last_exception = _attempt_download(
+                alternate_url,
+                attempted_formats,
+                label=alternate_label
+            )
+            if result is not None:
+                download_method = f"yt-dlp-{alternate_label}"
+                break
 
     if result is None and response['platform'] == 'tiktok':
         embed_url = get_tiktok_embed_url(videoUrl)
