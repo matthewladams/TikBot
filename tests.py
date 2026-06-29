@@ -673,5 +673,72 @@ class TestTikTokPlaywrightFallback(unittest.TestCase):
             )
         )
 
+    def test_playwright_hard_timeout_terminates_worker(self):
+        class FakeQueue:
+            def __init__(self):
+                self.closed = False
+                self.joined = False
+
+            def close(self):
+                self.closed = True
+
+            def join_thread(self):
+                self.joined = True
+
+        class FakeProcess:
+            def __init__(self, target, args):
+                self.target = target
+                self.args = args
+                self.exitcode = None
+                self.terminated = False
+                self.killed = False
+                self.join_calls = []
+
+            def start(self):
+                pass
+
+            def join(self, timeout=None):
+                self.join_calls.append(timeout)
+
+            def is_alive(self):
+                return not self.terminated and not self.killed
+
+            def terminate(self):
+                self.terminated = True
+
+            def kill(self):
+                self.killed = True
+
+        class FakeContext:
+            def __init__(self):
+                self.queue = FakeQueue()
+                self.process = None
+
+            def Queue(self, maxsize=1):
+                return self.queue
+
+            def Process(self, target, args):
+                self.process = FakeProcess(target, args)
+                return self.process
+
+        fake_context = FakeContext()
+        with mock.patch(
+            "tiktok_embed_fallback._get_multiprocessing_context",
+            return_value=fake_context,
+        ):
+            result = tiktok_fallback_module._download_tiktok_playwright_with_hard_timeout(
+                "https://vt.tiktok.com/ZSCDC8bDV/",
+                "partial.mp4",
+                20000,
+                0.01,
+            )
+
+        self.assertIsNone(result)
+        self.assertTrue(fake_context.process.terminated)
+        self.assertFalse(fake_context.process.killed)
+        self.assertEqual(fake_context.process.join_calls, [0.01, 5])
+        self.assertTrue(fake_context.queue.closed)
+        self.assertTrue(fake_context.queue.joined)
+
 if __name__ == '__main__':
     unittest.main()

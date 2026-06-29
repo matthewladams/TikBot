@@ -1,10 +1,10 @@
-import asyncio
 import json
 import logging
+import multiprocessing
+import os
 import re
 import time
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
@@ -238,18 +238,121 @@ def download_tiktok_embed_video_playwright(
     output_path: str | None = None,
     timeout_ms: int = 20000,
 ) -> dict | None:
+    hard_timeout_seconds = _get_playwright_hard_timeout_seconds(timeout_ms)
+    return _download_tiktok_playwright_with_hard_timeout(
+        video_url,
+        output_path,
+        timeout_ms,
+        hard_timeout_seconds,
+    )
+
+
+def _get_tiktok_output_name(video_url: str, output_path: str | None) -> str:
+    if output_path:
+        return output_path
+    page_url = get_tiktok_video_page_url(video_url) or get_tiktok_embed_url(video_url)
+    video_id = None
+    if page_url:
+        video_id = _extract_tiktok_embed_id(page_url) or _extract_tiktok_video_id(page_url)
+    return f"{video_id}.mp4" if video_id else "tiktok.mp4"
+
+
+def _get_playwright_hard_timeout_seconds(timeout_ms: int) -> float:
+    configured_timeout = os.getenv("TIKBOT_PLAYWRIGHT_HARD_TIMEOUT")
+    if configured_timeout:
+        try:
+            return max(1.0, float(configured_timeout))
+        except ValueError:
+            logger.warning("Invalid TIKBOT_PLAYWRIGHT_HARD_TIMEOUT=%s; using default", configured_timeout)
+    return max(45.0, (timeout_ms / 1000.0) + 15.0)
+
+
+def _get_multiprocessing_context():
     try:
-        asyncio.get_running_loop()
-        in_event_loop = True
-    except RuntimeError:
-        in_event_loop = False
+        return multiprocessing.get_context(os.getenv("TIKBOT_PLAYWRIGHT_MP_CONTEXT") or "fork")
+    except ValueError:
+        return multiprocessing.get_context()
 
-    if in_event_loop:
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_download_tiktok_playwright_sync, video_url, output_path, timeout_ms)
-            return future.result()
 
-    return _download_tiktok_playwright_sync(video_url, output_path, timeout_ms)
+def _download_tiktok_playwright_worker(queue, video_url: str, output_path: str | None, timeout_ms: int):
+    try:
+        result = _download_tiktok_playwright_sync(video_url, output_path, timeout_ms)
+        queue.put({"result": result, "error": None})
+    except BaseException as exc:
+        logger.exception("Playwright worker crashed")
+        queue.put({"result": None, "error": repr(exc)})
+
+
+def _download_tiktok_playwright_with_hard_timeout(
+    video_url: str,
+    output_path: str | None,
+    timeout_ms: int,
+    hard_timeout_seconds: float,
+) -> dict | None:
+    output_name = _get_tiktok_output_name(video_url, output_path)
+    context = _get_multiprocessing_context()
+    queue = context.Queue(maxsize=1)
+    process = context.Process(
+        target=_download_tiktok_playwright_worker,
+        args=(queue, video_url, output_path, timeout_ms),
+    )
+
+    process.start()
+    process.join(hard_timeout_seconds)
+
+    if process.is_alive():
+        logger.warning(
+            "Playwright fallback exceeded hard timeout of %.1fs for %s; terminating worker",
+            hard_timeout_seconds,
+            video_url,
+        )
+        process.terminate()
+        process.join(5)
+        if process.is_alive():
+            logger.warning("Playwright fallback worker did not terminate; killing worker")
+            process.kill()
+            process.join(5)
+        _remove_partial_download(output_name)
+        _close_queue(queue)
+        return None
+
+    try:
+        payload = queue.get(timeout=1)
+    except Exception:
+        if process.exitcode not in (0, None):
+            logger.warning("Playwright fallback worker exited with code %s", process.exitcode)
+        _remove_partial_download(output_name)
+        _close_queue(queue)
+        return None
+
+    if payload.get("error"):
+        logger.warning("Playwright fallback worker failed: %s", payload["error"])
+        _remove_partial_download(output_name)
+        _close_queue(queue)
+        return None
+
+    result = payload.get("result")
+    _close_queue(queue)
+    return result
+
+
+def _remove_partial_download(file_path: str):
+    try:
+        if file_path and os.path.exists(file_path):
+            os.remove(file_path)
+    except OSError:
+        logger.warning("Failed to remove partial Playwright download %s", file_path, exc_info=True)
+
+
+def _close_queue(queue):
+    try:
+        queue.close()
+    except Exception:
+        pass
+    try:
+        queue.join_thread()
+    except Exception:
+        pass
 
 
 def _download_tiktok_playwright_sync(
