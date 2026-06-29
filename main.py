@@ -1,4 +1,5 @@
 from calculator import calculateBitrate, calculateBitrateAudioOnly
+import functools
 import discord
 import os
 import ffmpeg
@@ -24,6 +25,19 @@ intents.message_content = True
 client = discord.Client(intents=intents)
 logger = logging.getLogger(__name__)
 
+
+def get_worker_thread_count():
+    try:
+        return max(1, int(os.getenv('TIKBOT_WORKER_THREADS', '2')))
+    except ValueError:
+        return 2
+
+
+blocking_executor = ThreadPoolExecutor(
+    max_workers=get_worker_thread_count(),
+    thread_name_prefix='tikbot-blocking',
+)
+
 if not logging.getLogger().handlers:
     logging.basicConfig(
         level=os.getenv("TIKBOT_LOG_LEVEL", "INFO"),
@@ -41,6 +55,46 @@ def get_transcode_scale_filter(video_bitrate_kbps):
     # Avoid upscaling, and drop long low-bitrate videos to 480p for better visual quality.
     max_height = 480 if video_bitrate_kbps <= 320 else 720
     return f"scale=-2:min({max_height}\\,ih)"
+
+
+async def run_blocking(func, *args, **kwargs):
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        blocking_executor,
+        functools.partial(func, *args, **kwargs),
+    )
+
+
+def get_compressed_filename(fileName):
+    return os.path.join(
+        os.path.dirname(fileName),
+        f"small_{os.path.basename(os.path.splitext(fileName)[0])}.mp4"
+    )
+
+
+def get_cleanup_file_candidates(fileName):
+    return list(dict.fromkeys([fileName, get_compressed_filename(fileName)]))
+
+
+def _transcode_audio(fileName, audioFilename, audio_bitrate):
+    ffmpeg.input(fileName).output(audioFilename, **{
+        'b:a': f"{audio_bitrate}k",
+        'threads': '1'
+    }).run()
+
+
+def _transcode_video(fileName, compressed_filename, output_kwargs):
+    ffmpeg.input(fileName).output(
+        compressed_filename,
+        **output_kwargs
+    ).run(overwrite_output=True)
+
+
+def _log_background_send_result(future):
+    try:
+        future.result()
+    except Exception as e:
+        logger.warning("Failed to send background Discord message: %s", e)
 
 
 async def update_presence():
@@ -64,7 +118,7 @@ async def handle_audio_conversion(message, url):
     try:
         await message.author.send('Attempting to turn this into a MP3 for ya.')
         
-        downloadResponse = download(url)
+        downloadResponse = await run_blocking(download, url)
         fileName = downloadResponse['fileName']
         duration = downloadResponse['duration']
         messages = downloadResponse['messages']
@@ -79,10 +133,7 @@ async def handle_audio_conversion(message, url):
         calcResult = calculateBitrateAudioOnly(duration)
         
         try:
-            ffmpeg.input(fileName).output(audioFilename, **{
-                'b:a': f"{calcResult.audioBitrate}k", 
-                'threads': '1'
-            }).run()
+            await run_blocking(_transcode_audio, fileName, audioFilename, calcResult.audioBitrate)
             
             with open(audioFilename, 'rb') as fp:
                 await message.author.send(file=discord.File(fp, str(audioFilename)))
@@ -108,10 +159,10 @@ async def handle_audio_conversion(message, url):
 async def process_video(message, fileName, duration, file_size_limit, downloadResponse):
     """Processes and sends video files"""
     try:
-        fileSize = os.stat(fileName).st_size
+        fileSize = await run_blocking(lambda: os.stat(fileName).st_size)
         
         # Check for unsupported codec
-        probe = ffmpeg.probe(fileName)
+        probe = await run_blocking(ffmpeg.probe, fileName)
         video_streams = [stream for stream in probe["streams"] if stream["codec_type"] == "video"]
 
         if not video_streams:
@@ -148,7 +199,8 @@ async def send_original_video(message, fileName, downloadResponse):
         with open(fileName, 'rb') as fp:
             await message.channel.send(file=discord.File(fp, str(fileName)))
             try:
-                savePost(
+                await run_blocking(
+                    savePost,
                     message.author.name,
                     downloadResponse['videoId'],
                     downloadResponse.get('platform', 'unknown'),
@@ -173,7 +225,7 @@ async def send_compressed_video(message, fileName, duration, file_size_limit, do
         logger.info("Duration = %s", duration)
         if not duration:
             try:
-                probe = ffmpeg.probe(fileName)
+                probe = await run_blocking(ffmpeg.probe, fileName)
                 format_duration = float(probe.get('format', {}).get('duration') or 0)
                 stream_duration = 0.0
                 for stream in probe.get('streams', []):
@@ -185,10 +237,7 @@ async def send_compressed_video(message, fileName, duration, file_size_limit, do
             except Exception as e:
                 logger.warning("Failed to probe duration for %s: %s", fileName, e)
         calcResult = calculateBitrate(duration)
-        compressed_filename = os.path.join(
-            os.path.dirname(fileName),
-            f"small_{os.path.basename(os.path.splitext(fileName)[0])}.mp4"
-        )
+        compressed_filename = get_compressed_filename(fileName)
 
         try:
             # Target HEVC-in-MP4 for better compression while keeping Discord-friendly playback flags.
@@ -211,21 +260,20 @@ async def send_compressed_video(message, fileName, duration, file_size_limit, do
             if calcResult.maxDuration:
                 output_kwargs['t'] = calcResult.maxDuration
 
-            ffmpeg.input(fileName).output(
-                compressed_filename,
-                **output_kwargs
-            ).run(overwrite_output=True)
+            await run_blocking(_transcode_video, fileName, compressed_filename, output_kwargs)
             
             # Check file size after compression
-            compressed_file_size = os.stat(compressed_filename).st_size
+            compressed_file_size = await run_blocking(lambda: os.stat(compressed_filename).st_size)
             if compressed_file_size > file_size_limit:
                 await message.channel.send(
                     f"⚠️ Error: Compressed file size is {compressed_file_size / 1_000_000:.2f}MB, exceeding the 8MB limit."
                 )
                 return
             
-            original_probe = ffmpeg.probe(fileName)
-            compressed_probe = ffmpeg.probe(compressed_filename)
+            original_probe, compressed_probe = await asyncio.gather(
+                run_blocking(ffmpeg.probe, fileName),
+                run_blocking(ffmpeg.probe, compressed_filename),
+            )
 
             original_duration = float(original_probe.get('format', {}).get('duration') or 0)
             if not original_duration:
@@ -253,7 +301,8 @@ async def send_compressed_video(message, fileName, duration, file_size_limit, do
                     await message.channel.send('Video duration was limited to keep quality above total potato.')
                 
                 try:
-                    savePost(
+                    await run_blocking(
+                        savePost,
                         message.author.name,
                         downloadResponse['videoId'],
                         downloadResponse.get('platform', 'unknown'),
@@ -365,15 +414,19 @@ async def handleMessage(message):
 
         # Download with retries
         downloadResponse = {'fileName': '', 'duration': 0, 'messages': '', 'videoId': '', 'repost': False, 'repostOriginalMesssageId': ''}
+        message_loop = asyncio.get_running_loop()
 
         def notify_retry(_attempt, _response):
             if not silentMode:
-                asyncio.get_running_loop().create_task(
-                    message.channel.send('Download failed. Retrying!', delete_after=10)
+                retry_notice = asyncio.run_coroutine_threadsafe(
+                    message.channel.send('Download failed. Retrying!', delete_after=10),
+                    message_loop,
                 )
+                retry_notice.add_done_callback(_log_background_send_result)
 
         try:
-            downloadResponse = download_with_retries(
+            downloadResponse = await run_blocking(
+                download_with_retries,
                 url,
                 retries=4,
                 on_retry=notify_retry,
@@ -408,7 +461,7 @@ async def handleMessage(message):
         if repost:
             try:
                 if os.path.exists(fileName):
-                    os.remove(fileName)
+                    await run_blocking(os.remove, fileName)
                     
                 originalPost = await message.channel.fetch_message(repostOriginalMesssageId)
                 await message.channel.send(messages, reference=originalPost)
@@ -430,9 +483,9 @@ async def handleMessage(message):
             await process_video(message, fileName, duration, get_file_size_limit(), downloadResponse)
         finally:
             # Clean up files
-            for file in [fileName, f"small_{fileName}"]:
+            for file in get_cleanup_file_candidates(fileName):
                 if os.path.exists(file):
-                    os.remove(file)
+                    await run_blocking(os.remove, file)
 
     except Exception as e:
         error_traceback = traceback.format_exc()

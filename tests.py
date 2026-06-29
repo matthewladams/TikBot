@@ -3,6 +3,8 @@ import contextlib
 import logging
 import os
 import tempfile
+import threading
+import time
 import unittest
 import shutil
 from unittest import mock
@@ -98,7 +100,10 @@ class _FakeChannel:
         self.name = name
 
     async def send(self, content=None, **kwargs):
-        self.sent.append({"content": content, "file": kwargs.get("file")})
+        file = kwargs.get("file")
+        self.sent.append({"content": content, "file": file})
+        if file and hasattr(file, "close"):
+            file.close()
 
     async def fetch_message(self, _message_id):
         return None
@@ -147,6 +152,81 @@ class TestMessageHandling(unittest.TestCase):
         )
         mock_process_video.assert_awaited_once()
 
+    def test_handleMessage_runs_download_in_worker_thread(self):
+        from main import handleMessage
+
+        message = _FakeMessage("https://www.tiktok.com/@test/video/123")
+        download_response = {
+            'fileName': 'downloaded.mp4',
+            'duration': 10,
+            'messages': '',
+            'videoId': '123',
+            'platform': 'tiktok',
+            'repost': False,
+            'repostOriginalMesssageId': '',
+        }
+        download_thread_names = []
+
+        def fake_download_with_retries(*_args, **_kwargs):
+            download_thread_names.append(threading.current_thread().name)
+            return download_response
+
+        with mock.patch("main.extractUrl", return_value={"url": "https://www.tiktok.com/@test/video/123", "messages": ""}):
+            with mock.patch("main.isSupportedUrl", return_value={"supported": "true", "messages": "", "silentMode": False}):
+                with mock.patch("main.download_with_retries", side_effect=fake_download_with_retries):
+                    with mock.patch("main.process_video", new=mock.AsyncMock()):
+                        asyncio.run(handleMessage(message))
+
+        self.assertTrue(
+            any(name.startswith("tikbot-blocking") for name in download_thread_names),
+            f"Expected download to run in a worker thread, got {download_thread_names}",
+        )
+
+    def test_handleMessage_keeps_event_loop_responsive_during_download(self):
+        from main import handleMessage
+
+        message = _FakeMessage("https://www.tiktok.com/@test/video/123")
+        download_response = {
+            'fileName': 'downloaded.mp4',
+            'duration': 10,
+            'messages': '',
+            'videoId': '123',
+            'platform': 'tiktok',
+            'repost': False,
+            'repostOriginalMesssageId': '',
+        }
+
+        def fake_download_with_retries(*_args, **_kwargs):
+            time.sleep(0.2)
+            return download_response
+
+        async def run_scenario():
+            with mock.patch("main.extractUrl", return_value={"url": "https://www.tiktok.com/@test/video/123", "messages": ""}):
+                with mock.patch("main.isSupportedUrl", return_value={"supported": "true", "messages": "", "silentMode": False}):
+                    with mock.patch("main.download_with_retries", side_effect=fake_download_with_retries):
+                        with mock.patch("main.process_video", new=mock.AsyncMock()):
+                            task = asyncio.create_task(handleMessage(message))
+                            started = time.perf_counter()
+                            await asyncio.sleep(0.05)
+                            elapsed = time.perf_counter() - started
+                            self.assertFalse(task.done())
+                            self.assertLess(elapsed, 0.15)
+                            await task
+
+        asyncio.run(run_scenario())
+
+    def test_compressed_filename_uses_download_directory(self):
+        from main import get_cleanup_file_candidates, get_compressed_filename
+
+        self.assertEqual(
+            get_compressed_filename("/tmp/tikbot/video.mp4"),
+            "/tmp/tikbot/small_video.mp4",
+        )
+        self.assertEqual(
+            get_cleanup_file_candidates("/tmp/tikbot/video.mp4"),
+            ["/tmp/tikbot/video.mp4", "/tmp/tikbot/small_video.mp4"],
+        )
+
     def test_process_video_rejects_audio_only_download(self):
         from main import process_video
 
@@ -170,6 +250,56 @@ class TestMessageHandling(unittest.TestCase):
 
         sent_text = [item["content"] for item in message.channel.sent if item["content"]]
         self.assertTrue(any("did not contain a video stream" in text for text in sent_text))
+
+    def test_send_compressed_video_keeps_event_loop_responsive_during_transcode(self):
+        import main
+
+        message = _FakeMessage()
+        download_response = {
+            'videoId': '123',
+            'platform': 'tiktok',
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_file = os.path.join(tmpdir, "video.mp4")
+            with open(input_file, "wb") as fp:
+                fp.write(b"source")
+
+            def fake_transcode(_input_file, compressed_filename, _output_kwargs):
+                time.sleep(0.2)
+                with open(compressed_filename, "wb") as fp:
+                    fp.write(b"compressed")
+
+            def fake_probe(_file_name):
+                return {
+                    "format": {"duration": "10"},
+                    "streams": [{"codec_type": "video", "duration": "10"}],
+                }
+
+            async def run_scenario():
+                with mock.patch("main._transcode_video", side_effect=fake_transcode):
+                    with mock.patch("main.ffmpeg.probe", side_effect=fake_probe, create=True):
+                        with mock.patch("main.savePost", autospec=True, return_value=None):
+                            task = asyncio.create_task(
+                                main.send_compressed_video(
+                                    message,
+                                    input_file,
+                                    10,
+                                    8_000_000,
+                                    download_response,
+                                    False,
+                                )
+                            )
+                            started = time.perf_counter()
+                            await asyncio.sleep(0.05)
+                            elapsed = time.perf_counter() - started
+                            self.assertFalse(task.done())
+                            self.assertLess(elapsed, 0.15)
+                            await task
+
+            asyncio.run(run_scenario())
+
+        self.assertTrue(any(item["file"] for item in message.channel.sent))
 
 
 class TestVersioning(unittest.TestCase):
