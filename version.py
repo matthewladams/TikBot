@@ -2,7 +2,7 @@ import os
 import re
 import subprocess
 
-DEFAULT_VERSION = "1.96.0"
+DEFAULT_VERSION = "1.97.0"
 VERSION_ENV_VAR = "TIKBOT_VERSION"
 STATUS_TEXT_ENV_VAR = "TIKBOT_STATUS_TEXT"
 DEFAULT_STATUS_TEXT = "doomscrolling"
