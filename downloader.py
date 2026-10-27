@@ -86,6 +86,12 @@ def _get_alternate_urls(video_url: str, platform: str) -> list[tuple[str, str]]:
     return alternates
 
 
+def _get_instagram_shortcode(video_url: str) -> str | None:
+    parsed = urlparse(video_url if '://' in video_url else f"https://{video_url}")
+    match = _KKCLIP_REEL_RE.search(parsed.path)
+    return match.group('shortcode') if match else None
+
+
 def _is_kkclip_host(host: str) -> bool:
     return (
         host == 'kkclip.com'
@@ -155,7 +161,8 @@ def _create_ydl_opts(format_selection: str) -> dict:
     """Create yt-dlp options for a download attempt."""
     opts: dict[str, object] = {
         'format': format_selection,
-        'outtmpl': '%(id)s.%(ext)s',
+        # Generic-extractor IDs can be a whole CDN URL; cap them so derived names stay under NAME_MAX.
+        'outtmpl': '%(id).100B.%(ext)s',
         'merge_output_format': 'mp4',
         'noplaylist': True,
         'quiet': True,
@@ -325,6 +332,7 @@ def download(videoUrl: str, detect_repost: bool = True):
 
     attempted_formats = []
     download_method = "yt-dlp"
+    canonical_video_id = None
     result, selected_format, last_exception = _attempt_download(videoUrl, attempted_formats)
 
     if response['platform'] == 'tiktok' and result is not None:
@@ -361,6 +369,8 @@ def download(videoUrl: str, detect_repost: bool = True):
             )
             if result is not None:
                 download_method = "yt-dlp-kkclip-embed-media"
+                # The CDN URL's ID is unstable and long; key reposts on the reel shortcode instead.
+                canonical_video_id = _get_instagram_shortcode(videoUrl)
 
     if result is None:
         for alternate_url, alternate_label in _get_alternate_urls(videoUrl, response['platform']):
@@ -429,7 +439,7 @@ def download(videoUrl: str, detect_repost: bool = True):
 
     if('duration' in video):
         response['duration'] = video['duration']
-    response['videoId'] = video['id']
+    response['videoId'] = canonical_video_id or video['id']
 
     downloaded_filepath = _resolve_downloaded_filepath(video)
     if not downloaded_filepath or not os.path.exists(downloaded_filepath):
@@ -443,9 +453,9 @@ def download(videoUrl: str, detect_repost: bool = True):
 
     if detect_repost:
         try:
-            reposted = doesPostExist(video['id'], response['platform'])
+            reposted = doesPostExist(response['videoId'], response['platform'])
             if reposted is None and response['platform'] != 'unknown':
-                reposted = doesPostExist(video['id'], 'MattIsLazy')
+                reposted = doesPostExist(response['videoId'], 'MattIsLazy')
             if reposted is not None:
                 logger.debug("Trying repost detection with response %s", reposted)
                 repostUserId = reposted[0]

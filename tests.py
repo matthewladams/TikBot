@@ -9,6 +9,7 @@ import unittest
 import shutil
 from unittest import mock
 
+import dbInteraction as db_module
 import downloader as downloader_module
 import tiktok_embed_fallback as tiktok_fallback_module
 from downloader import download_with_retries
@@ -696,6 +697,35 @@ class TestDownloaderFormatSelection(DownloaderTestCase):
             [("https://www.instagram.com/reel/DaFy7GYIKI5/", "instagram-canonical")]
         )
 
+    def test_get_instagram_shortcode_from_kkinstagram_reel(self):
+        self.assertEqual(
+            downloader_module._get_instagram_shortcode(
+                "https://www.kkinstagram.com/reel/De9LlWwgXE2/?utm_source=ig_web_copy_link&srtk=NTc4"
+            ),
+            "De9LlWwgXE2",
+        )
+
+    def test_create_opts_caps_filename_length(self):
+        opts = downloader_module._create_ydl_opts("best")
+        self.assertEqual(opts["outtmpl"], "%(id).100B.%(ext)s")
+
+    def test_kkclip_embed_download_uses_reel_shortcode_as_video_id(self):
+        cdn_id = "AQNdUSwpI12iEFrmT_GSK-cS7kKrPLvRbwy39mUDBaqSG_v51JMGNkiHhxj__n-JiqvJ_cLZvtwhlD_MQQoWbJTTf0buuWtdOMsEFzQ.mp4?_nc_cat=103"
+        with tempfile.TemporaryDirectory() as tmp:
+            filepath = os.path.join(tmp, "video.mp4")
+            with open(filepath, "wb") as fp:
+                fp.write(b"x")
+            video = {"id": cdn_id, "duration": 60, "ext": "mp4", "requested_downloads": [{"filepath": filepath}]}
+            attempts = [(None, None, Exception("Unsupported URL")), (video, "best", None)]
+            with mock.patch("downloader._attempt_download", side_effect=attempts), \
+                 mock.patch("downloader._resolve_kkclip_embed_media_url", return_value="https://cdn.example/v.mp4"):
+                response = downloader_module.download(
+                    "https://www.kkinstagram.com/reel/De9LlWwgXE2/?utm_source=ig_web_copy_link"
+                )
+
+        self.assertEqual(response["videoId"], "De9LlWwgXE2")
+        self.mock_does_post_exist.assert_any_call("De9LlWwgXE2", "instagram")
+
     def test_resolve_kkclip_embed_media_url_accepts_direct_video_redirect(self):
         response = mock.Mock()
         response.url = "https://scontent.cdninstagram.com/o1/v/t16/f2/m86/video.mp4"
@@ -739,6 +769,46 @@ class TestDownloaderFormatSelection(DownloaderTestCase):
                 "unused.m4a",
             )
         )
+
+
+class TestDbInteraction(unittest.TestCase):
+
+    def _mock_connection(self, execute_side_effect=None, fetch_result=None):
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = execute_side_effect
+        cursor.fetchone.return_value = fetch_result
+        connection = mock.MagicMock()
+        connection.closed = 0
+        connection.cursor.return_value.__enter__.return_value = cursor
+        return connection, cursor
+
+    def test_failed_query_rolls_back_so_next_query_succeeds(self):
+        connection, cursor = self._mock_connection(execute_side_effect=[Exception("value too long"), None])
+        with mock.patch.object(db_module, "conn", connection):
+            with self.assertRaises(Exception):
+                db_module.savePost("user", "id", "instagram", 1)
+            connection.rollback.assert_called_once()
+            db_module.savePost("user", "id", "instagram", 2)
+        self.assertEqual(connection.commit.call_count, 1)
+
+    def test_long_video_ids_are_truncated_to_column_length(self):
+        connection, cursor = self._mock_connection()
+        with mock.patch.object(db_module, "conn", connection):
+            db_module.savePost("user", "x" * 120, "instagram", 1)
+            db_module.doesPostExist("x" * 120, "instagram")
+        saved_id = cursor.execute.call_args_list[0].args[1][1]
+        looked_up_id = cursor.execute.call_args_list[1].args[1][0]
+        self.assertEqual(saved_id, "x" * db_module.VIDEO_ID_MAX_LENGTH)
+        self.assertEqual(looked_up_id, saved_id)
+
+    def test_reconnects_when_connection_closed(self):
+        closed = mock.MagicMock(closed=1)
+        fresh, _ = self._mock_connection()
+        with mock.patch.object(db_module, "conn", closed), \
+             mock.patch.object(db_module, "_connect", return_value=fresh) as connect:
+            db_module.savePost("user", "id", "instagram", 1)
+        connect.assert_called_once()
+        fresh.commit.assert_called_once()
 
 
 class TestTikTokPlaywrightFallback(unittest.TestCase):
