@@ -15,7 +15,7 @@ import tiktok_embed_fallback as tiktok_fallback_module
 from downloader import download_with_retries
 from calculator import calculateBitrate, calculateBitrateAudioOnly
 from validator import isSupportedUrl
-from version import _get_version_from_git, get_status_label, get_status_text, get_version, get_version_label
+from version import DEFAULT_VERSION, _get_version_from_git, get_status_label, get_status_text, get_version, get_version_label
 
 
 if not logging.getLogger().handlers:
@@ -308,8 +308,8 @@ class TestVersioning(unittest.TestCase):
     def test_get_version_uses_default_when_env_missing(self):
         with mock.patch.dict(os.environ, {}, clear=True):
             with mock.patch("version._get_version_from_git", return_value=None):
-                self.assertEqual(get_version(), "1.96.0")
-                self.assertEqual(get_version_label(), "v1.96.0")
+                self.assertEqual(get_version(), DEFAULT_VERSION)
+                self.assertEqual(get_version_label(), f"v{DEFAULT_VERSION}")
 
     def test_get_version_uses_git_commit_count_when_env_missing(self):
         with mock.patch.dict(os.environ, {}, clear=True):
