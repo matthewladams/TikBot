@@ -19,7 +19,7 @@ This repository is flat and script-oriented. There is no package directory, no b
 
 ## Runtime Requirements
 
-- Python 3.9+ per `README.md`. The Docker image currently uses Python 3.14 slim.
+- Python 3.11+ per `README.md` (yt-dlp's floor). The Docker image currently uses Python 3.14 slim.
 - `ffmpeg` must be available on the host for audio conversion, probing, and compression.
 - A Discord bot token in `.env` as `TOKEN=...` is required to run `main.py`.
 - Playwright is optional, but TikTok fallback coverage is stronger when Chromium is installed.
@@ -80,6 +80,7 @@ Download behavior:
 - `TIKBOT_AUTO_DOMAINS`: Space-separated domains/platforms to auto-process.
 - `TIKBOT_SILENT_DOMAINS`: Space-separated domains to attempt silently.
 - `TIKBOT_IMPERSONATE`: yt-dlp impersonation target, important for TikTok reliability.
+- `TIKBOT_COOKIES_FILE`: Netscape cookies file passed to yt-dlp; needed for Reddit (`reddit_session`).
 - `TIKBOT_ENABLE_REMOTE_COMPONENTS`: Forces yt-dlp remote components.
 - `TIKBOT_ENABLE_PLAYWRIGHT`: Enables Playwright TikTok fallback.
 - `TIKBOT_ENABLE_PLAYWRIGHT_TEST`: Enables the Playwright integration test in `tests.py`.
@@ -143,7 +144,7 @@ Repost detection:
 
 ## Known Sharp Edges
 
-- The README says Python 3.9+, but the Docker image is on Python 3.14. Avoid introducing syntax that unintentionally raises the local version floor.
+- The README says Python 3.11+ (yt-dlp's floor), but the Docker image is on Python 3.14. Avoid introducing syntax that unintentionally raises the local version floor further.
 - `dbInteraction.py` can print connection failures on import when DB env vars are absent.
 - Network tests can fail for reasons unrelated to code changes, especially TikTok rate limiting, proxy issues, or temporary site behavior changes.
 - TikTok support is brittle by nature. Prefer additive fallbacks and better diagnostics over deleting fallback paths.

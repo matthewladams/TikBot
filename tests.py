@@ -653,7 +653,12 @@ class TestDownloaderFormatSelection(DownloaderTestCase):
         )
         self.assertEqual(
             candidates,
-            ['bestvideo[ext=mp4][filesize<7M]+bestaudio[ext=m4a][filesize<1050K]/b[ext=mp4][filesize<8M]/best[filesize<8M]', 'best']
+            [
+                'bestvideo[ext=mp4][filesize<7M]+bestaudio[ext=m4a][filesize<1050K]/b[ext=mp4][filesize<8M]/best[filesize<8M]',
+                'bv*[vcodec^=avc1][height<=720]+ba[ext=m4a]/bv*[height<=720]+ba/b[height<=720]',
+                'bv*+ba/b',
+                'best',
+            ]
         )
 
     def test_get_format_candidates_for_youtube_watch_url(self):
@@ -662,7 +667,12 @@ class TestDownloaderFormatSelection(DownloaderTestCase):
         )
         self.assertEqual(
             candidates,
-            ['bestvideo[ext=mp4][filesize<7M]+bestaudio[ext=m4a][filesize<1050K]/b[ext=mp4][filesize<8M]/best[filesize<8M]', 'best']
+            [
+                'bestvideo[ext=mp4][filesize<7M]+bestaudio[ext=m4a][filesize<1050K]/b[ext=mp4][filesize<8M]/best[filesize<8M]',
+                'bv*[vcodec^=avc1][height<=720]+ba[ext=m4a]/bv*[height<=720]+ba/b[height<=720]',
+                'bv*+ba/b',
+                'best',
+            ]
         )
 
     def test_create_opts_sets_format_sort_for_filesize(self):
@@ -681,6 +691,36 @@ class TestDownloaderFormatSelection(DownloaderTestCase):
         )
         self.assertEqual(opts['format_sort'], ['+codec:h264'])
         self.assertEqual(opts['merge_output_format'], 'mp4')
+
+    def test_create_opts_uses_cookies_file_when_present(self):
+        with tempfile.NamedTemporaryFile(suffix='.txt') as cookies:
+            with mock.patch.dict(os.environ, {'TIKBOT_COOKIES_FILE': cookies.name}):
+                opts = downloader_module._create_ydl_opts('best')
+        self.assertEqual(opts['cookiefile'], cookies.name)
+
+    def test_create_opts_ignores_missing_cookies_file(self):
+        with mock.patch.dict(os.environ, {'TIKBOT_COOKIES_FILE': '/nonexistent/cookies.txt'}):
+            opts = downloader_module._create_ydl_opts('best')
+        self.assertNotIn('cookiefile', opts)
+
+    def test_attempt_download_stops_on_auth_error(self):
+        auth_error = downloader_module.DownloadError("ERROR: [Reddit] abc: Account authentication is required.")
+        with mock.patch.object(downloader_module.yt_dlp, 'YoutubeDL') as ydl_cls:
+            ydl_cls.return_value.__enter__.return_value.extract_info.side_effect = auth_error
+            attempted = []
+            result, _, last_exception = downloader_module._attempt_download("https://www.reddit.com/r/test/", attempted)
+        self.assertIsNone(result)
+        self.assertIs(last_exception, auth_error)
+        self.assertEqual(len(attempted), 1)
+
+    def test_download_with_retries_skips_retry_on_auth_error(self):
+        response = {'messages': 'Error: Download Failed', 'lastError': 'ERROR: [Reddit] abc: Account authentication is required.'}
+        on_retry = mock.Mock()
+        with mock.patch.object(downloader_module, 'download', return_value=response) as fake_download:
+            result = downloader_module.download_with_retries("https://www.reddit.com/r/test/", on_retry=on_retry)
+        self.assertIs(result, response)
+        fake_download.assert_called_once()
+        on_retry.assert_not_called()
 
     def test_create_opts_sets_format_sort_for_reddit_merge(self):
         opts = downloader_module._create_ydl_opts('bv*+ba/b')

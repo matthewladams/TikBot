@@ -5,7 +5,7 @@
  In cases where the file is too large for Discord's free tier, the video will be compressed to fit first.
  
  # Installation & Usage
- Requirements: Python 3.9+
+ Requirements: Python 3.11+ (required by current yt-dlp)
  
  1. Set Discord access token into ```.env``` as ```TOKEN=$yourTokenGoesHere```
  
@@ -49,6 +49,9 @@ Setup in GitHub:
 3. Add a repo variable:
    - `DOCKERHUB_REPOSITORY` (example: `yourname/tikbot`)
 
+
+## Reddit (and other login-only sites)
+Reddit now refuses anonymous API access for many posts (`Account authentication is required`). To fix this, export cookies from a browser logged into Reddit in Netscape `cookies.txt` format (it must include `reddit_session`) and point `TIKBOT_COOKIES_FILE` at it, e.g. `TIKBOT_COOKIES_FILE=/usr/src/app/cookies/cookies.txt`. In Docker, mount it from a writable volume, because yt-dlp saves refreshed cookies back to the file. Use a throwaway account, not your main one.
 
 ## Automatic Domain Configuration
 By default the bot will post where a link is from ```'youtube', 'tiktok', 'instagram', 'reddit', 'redd.it'```, or if a 🤖 emoji is included in the message.

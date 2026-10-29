@@ -54,6 +54,10 @@ def _get_format_candidates(video_url: str) -> list[str]:
     if 'youtube.com' in lowered_url or 'youtu.be' in lowered_url:
         # Prefer a higher-quality MP4/M4A pair that still fits under Discord's upload budget.
         candidates.append('bestvideo[ext=mp4][filesize<7M]+bestaudio[ext=m4a][filesize<1050K]/b[ext=mp4][filesize<8M]/best[filesize<8M]')
+        # Longer videos have nothing under budget (and DASH sizes are often unknown), so fall back to a
+        # modest H.264 stream and let compression shrink it. Format 18 ('best') regularly 403s.
+        candidates.append('bv*[vcodec^=avc1][height<=720]+ba[ext=m4a]/bv*[height<=720]+ba/b[height<=720]')
+        candidates.append('bv*+ba/b')
     elif 'tiktok.com' in lowered_url:
         candidates.append('best[filesize<8M][vcodec!=none]/worst[vcodec!=none]')
     elif 'twitch.tv' in lowered_url:
@@ -191,6 +195,14 @@ def _create_ydl_opts(format_selection: str) -> dict:
         # Don't fail if shutil or env checks misbehave for any reason
         logger.error('Could not determine JS runtime availability for remote components', exc_info=True)
 
+    # Netscape-format cookies for sites that now require a login (Reddit needs a reddit_session cookie).
+    cookies_file = os.getenv('TIKBOT_COOKIES_FILE')
+    if cookies_file:
+        if os.path.isfile(cookies_file):
+            opts['cookiefile'] = cookies_file
+        else:
+            logger.warning("TIKBOT_COOKIES_FILE '%s' does not exist; continuing without cookies", cookies_file)
+
     impersonate = os.getenv('TIKBOT_IMPERSONATE')
     if impersonate:
         try:
@@ -211,6 +223,14 @@ def _compact_error_message(error: Exception) -> str:
         cutoff = lower_message.index(marker)
         message = message[:cutoff].rstrip(" ;.")
     return message.splitlines()[0] if message else "unknown error"
+
+
+def _is_auth_error(error) -> bool:
+    """Login-required errors won't change with another format or a retry."""
+    if not error:
+        return False
+    lowered = str(error).lower()
+    return 'authentication is required' in lowered or 'login required' in lowered or 'log in for access' in lowered
 
 
 def _attempt_download(video_url: str, attempted_formats: list[str], label: str | None = None):
@@ -239,6 +259,8 @@ def _attempt_download(video_url: str, attempted_formats: list[str], label: str |
                 _compact_error_message(ex),
             )
             last_exception = ex
+            if _is_auth_error(ex):
+                break
         except Exception as ex:  # Catch-all to ensure retries on unexpected errors.
             logger.error("Unexpected error during download with format '%s' for url %s: %s", format_selection, video_url, ex)
             last_exception = ex
@@ -499,6 +521,9 @@ def download_with_retries(
         try:
             response = download(video_url, detect_repost=detect_repost)
             messages = response.get('messages', '')
+            if messages.startswith("Error") and _is_auth_error(response.get('lastError')):
+                logger.warning("Not retrying download; site requires authentication (set TIKBOT_COOKIES_FILE)")
+                return response
             if messages.startswith("Error") and attempt < retries:
                 if on_retry:
                     on_retry(attempt, response)
