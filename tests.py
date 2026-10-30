@@ -794,6 +794,78 @@ class TestDownloaderFormatSelection(DownloaderTestCase):
 
         self.assertIsNone(resolved)
 
+    VXREDDIT_MEDIA_URL = (
+        "https://vxreddit.com/redditvideo.mp4?video_url=https%3A%2F%2Fv.redd.it%2Fhka1k2rez2fh1%2FCMAF_720.m3u8"
+        "&audio_url=https%3A%2F%2Fv.redd.it%2Fhka1k2rez2fh1%2FCMAF_AUDIO_128.m3u8"
+    )
+
+    def test_get_vxreddit_url_rewrites_reddit_hosts_only(self):
+        self.assertEqual(
+            downloader_module._get_vxreddit_url("https://www.reddit.com/r/test/s/abc123"),
+            "https://vxreddit.com/r/test/s/abc123",
+        )
+        self.assertEqual(
+            downloader_module._get_vxreddit_url("https://old.reddit.com/r/test/comments/x1/y/?utm=1"),
+            "https://vxreddit.com/r/test/comments/x1/y/",
+        )
+        self.assertIsNone(downloader_module._get_vxreddit_url("https://notreddit.com/r/test/"))
+
+    def test_resolve_reddit_embed_media_urls_prefers_vreddit_hls(self):
+        response = mock.Mock()
+        response.url = "https://vxreddit.com/r/test/s/abc123"
+        response.headers = {"content-type": "text/html; charset=utf-8"}
+        response.encoding = "utf-8"
+        response.raw.read.return_value = (
+            f'<meta property="og:video" content="{self.VXREDDIT_MEDIA_URL.replace("&", "&amp;")}" />'
+        ).encode()
+
+        with mock.patch("downloader.requests.get", return_value=response) as mock_get:
+            candidates, vreddit_id = downloader_module._resolve_reddit_embed_media_urls(
+                "https://www.reddit.com/r/test/s/abc123"
+            )
+
+        mock_get.assert_called_once()
+        self.assertEqual(mock_get.call_args.args[0], "https://vxreddit.com/r/test/s/abc123")
+        self.assertEqual(vreddit_id, "hka1k2rez2fh1")
+        self.assertEqual(
+            candidates,
+            ["https://v.redd.it/hka1k2rez2fh1/HLSPlaylist.m3u8", self.VXREDDIT_MEDIA_URL],
+        )
+
+    def test_resolve_reddit_embed_media_urls_handles_direct_vreddit_fallback(self):
+        fallback = "https://v.redd.it/q8dh99rf0ivh1/CMAF_720.mp4?source=fallback"
+        with mock.patch("downloader._probe_embed_media_url", return_value=fallback):
+            candidates, vreddit_id = downloader_module._resolve_reddit_embed_media_urls(
+                "https://www.reddit.com/r/test/s/abc123"
+            )
+
+        self.assertEqual(vreddit_id, "q8dh99rf0ivh1")
+        self.assertEqual(candidates, ["https://v.redd.it/q8dh99rf0ivh1/HLSPlaylist.m3u8", fallback])
+
+    def test_reddit_download_falls_back_to_vxreddit_on_auth_error(self):
+        auth_error = downloader_module.DownloadError("ERROR: [Reddit] abc: Account authentication is required.")
+        with tempfile.TemporaryDirectory() as tmp:
+            filepath = os.path.join(tmp, "hka1k2rez2fh1.mp4")
+            with open(filepath, "wb") as fp:
+                fp.write(b"x")
+            video = {"id": "HLSPlaylist", "duration": 60, "ext": "mp4", "requested_downloads": [{"filepath": filepath}]}
+            attempts = [(None, None, auth_error), (video, "bv*+ba/b (vxreddit-embed-media)", None)]
+            with mock.patch("downloader._attempt_download", side_effect=attempts) as mock_attempt, \
+                 mock.patch(
+                     "downloader._resolve_reddit_embed_media_urls",
+                     return_value=(["https://v.redd.it/hka1k2rez2fh1/HLSPlaylist.m3u8"], "hka1k2rez2fh1"),
+                 ):
+                response = downloader_module.download("https://www.reddit.com/r/test/s/abc123")
+
+        self.assertEqual(response["fileName"], filepath)
+        self.assertEqual(response["videoId"], "hka1k2rez2fh1")
+        self.assertIsNone(response["lastError"])
+        self.assertEqual(mock_attempt.call_args.kwargs["output_name"], "hka1k2rez2fh1")
+
+    def test_create_opts_uses_output_name_when_given(self):
+        opts = downloader_module._create_ydl_opts("best", "hka1k2rez2fh1")
+        self.assertEqual(opts["outtmpl"], "hka1k2rez2fh1.%(ext)s")
+
     def test_downloaded_file_has_video_uses_requested_formats(self):
         self.assertTrue(
             downloader_module._downloaded_file_has_video(

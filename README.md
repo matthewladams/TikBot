@@ -51,7 +51,9 @@ Setup in GitHub:
 
 
 ## Reddit (and other login-only sites)
-Reddit now refuses anonymous API access for many posts (`Account authentication is required`). To fix this, export cookies from a browser logged into Reddit in Netscape `cookies.txt` format (it must include `reddit_session`) and point `TIKBOT_COOKIES_FILE` at it, e.g. `TIKBOT_COOKIES_FILE=/usr/src/app/cookies/cookies.txt`. In Docker, mount it from a writable volume, because yt-dlp saves refreshed cookies back to the file. Use a throwaway account, not your main one.
+Reddit now refuses anonymous API access for many posts (`Account authentication is required`). When that happens TikBot looks the post up on [vxreddit](https://vxreddit.com) and downloads the video straight from Reddit's `v.redd.it` CDN, so no login is needed. This depends on vxreddit staying up.
+
+Optionally, you can instead point `TIKBOT_COOKIES_FILE` at a Netscape `cookies.txt` exported from a browser logged into Reddit (it must include `reddit_session`). In Docker, mount it from a writable volume, because yt-dlp saves refreshed cookies back to the file.
 
 ## Automatic Domain Configuration
 By default the bot will post where a link is from ```'youtube', 'tiktok', 'instagram', 'reddit', 'redd.it'```, or if a 🤖 emoji is included in the message.

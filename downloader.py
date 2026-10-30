@@ -4,7 +4,7 @@ import re
 import shutil
 import time
 from datetime import datetime
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 
 import ffmpeg
@@ -20,6 +20,7 @@ from tiktok_embed_fallback import download_tiktok_embed_video_playwright, get_ti
 logger = logging.getLogger(__name__)
 
 _KKCLIP_REEL_RE = re.compile(r"/(?:reel|p|tv)/(?P<shortcode>[^/?#]+)", re.IGNORECASE)
+_VREDDIT_ID_RE = re.compile(r"^https://v\.redd\.it/(?P<id>[A-Za-z0-9]+)/")
 _META_MEDIA_RE = re.compile(
     r'<meta[^>]+(?:property|name)=["\'](?:og:video(?::secure_url)?|twitter:player:stream)["\'][^>]+content=["\'](?P<url>[^"\']+)["\']',
     re.IGNORECASE,
@@ -65,7 +66,7 @@ def _get_format_candidates(video_url: str) -> list[str]:
     else:
         candidates.append('best[filesize<8M][vcodec!=none]/worst[vcodec!=none]')
 
-    if 'reddit.com' in lowered_url:
+    if 'reddit.com' in lowered_url or 'redd.it' in lowered_url:
         # Reddit often provides separate audio/video streams. Fallback to merging them.
         candidates.append('bv*+ba/b')
 
@@ -124,28 +125,24 @@ def _get_kkclip_probe_urls(video_url: str) -> list[str]:
     return list(dict.fromkeys(probe_urls))
 
 
-def _resolve_kkclip_embed_media_url(video_url: str) -> str | None:
-    parsed = urlparse(video_url if '://' in video_url else f"https://{video_url}")
-    host = parsed.netloc.split('@')[-1].split(':')[0].lower()
-    if not _is_kkclip_host(host):
-        return None
-
+def _probe_embed_media_url(probe_urls: list[str], source: str) -> str | None:
+    """Fetch embed-fixer pages as Discord would and return the video they advertise."""
     headers = {
         'User-Agent': 'Discordbot/2.0',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,video/*;q=0.8,*/*;q=0.7',
     }
 
-    for probe_url in _get_kkclip_probe_urls(video_url):
+    for probe_url in probe_urls:
         try:
             response = requests.get(probe_url, headers=headers, allow_redirects=True, timeout=15, stream=True)
         except requests.RequestException as exc:
-            logger.info("Failed to resolve kkclip embed media URL %s: %s", probe_url, exc)
+            logger.info("Failed to resolve %s embed media URL %s: %s", source, probe_url, exc)
             continue
 
         try:
             content_type = response.headers.get('content-type')
             if _looks_like_direct_video_url(response.url, content_type):
-                logger.info("Resolved kkclip embed media URL %s -> %s", probe_url, response.url)
+                logger.info("Resolved %s embed media URL %s -> %s", source, probe_url, response.url)
                 return response.url
 
             if content_type and 'text/html' in content_type.lower():
@@ -153,7 +150,7 @@ def _resolve_kkclip_embed_media_url(video_url: str) -> str | None:
                 for match in _META_MEDIA_RE.finditer(body):
                     media_url = match.group('url').replace('&amp;', '&')
                     if _looks_like_direct_video_url(media_url):
-                        logger.info("Resolved kkclip meta media URL %s -> %s", probe_url, media_url)
+                        logger.info("Resolved %s meta media URL %s -> %s", source, probe_url, media_url)
                         return media_url
         finally:
             response.close()
@@ -161,12 +158,55 @@ def _resolve_kkclip_embed_media_url(video_url: str) -> str | None:
     return None
 
 
-def _create_ydl_opts(format_selection: str) -> dict:
+def _resolve_kkclip_embed_media_url(video_url: str) -> str | None:
+    parsed = urlparse(video_url if '://' in video_url else f"https://{video_url}")
+    host = parsed.netloc.split('@')[-1].split(':')[0].lower()
+    if not _is_kkclip_host(host):
+        return None
+    return _probe_embed_media_url(_get_kkclip_probe_urls(video_url), 'kkclip')
+
+
+def _get_vxreddit_url(video_url: str) -> str | None:
+    parsed = urlparse(video_url if '://' in video_url else f"https://{video_url}")
+    host = parsed.netloc.split('@')[-1].split(':')[0].lower()
+    if host not in ('reddit.com', 'redd.it') and not host.endswith('.reddit.com'):
+        return None
+    return f"https://vxreddit.com{parsed.path or '/'}"
+
+
+def _resolve_reddit_embed_media_urls(video_url: str) -> tuple[list[str], str | None]:
+    """Use vxreddit to find a post's video without Reddit's (now login-only) JSON API.
+
+    Returns download candidates, preferring Reddit's own CDN over vxreddit's re-render,
+    plus the v.redd.it video ID when known.
+    """
+    vxreddit_url = _get_vxreddit_url(video_url)
+    if not vxreddit_url:
+        return [], None
+
+    media_url = _probe_embed_media_url([vxreddit_url], 'vxreddit')
+    if not media_url:
+        return [], None
+
+    candidates: list[str] = []
+    vreddit_id = None
+    # vxreddit either wraps the v.redd.it stream in its own render URL or hands back
+    # Reddit's video-only fallback MP4 directly; either way the HLS master keeps the audio.
+    stream_url = (parse_qs(urlparse(media_url).query).get('video_url') or [media_url])[0]
+    match = _VREDDIT_ID_RE.match(stream_url)
+    if match:
+        vreddit_id = match.group('id')
+        candidates.append(f"https://v.redd.it/{vreddit_id}/HLSPlaylist.m3u8")
+    candidates.append(media_url)
+    return candidates, vreddit_id
+
+
+def _create_ydl_opts(format_selection: str, output_name: str | None = None) -> dict:
     """Create yt-dlp options for a download attempt."""
     opts: dict[str, object] = {
         'format': format_selection,
         # Generic-extractor IDs can be a whole CDN URL; cap them so derived names stay under NAME_MAX.
-        'outtmpl': '%(id).100B.%(ext)s',
+        'outtmpl': f'{output_name}.%(ext)s' if output_name else '%(id).100B.%(ext)s',
         'merge_output_format': 'mp4',
         'noplaylist': True,
         'quiet': True,
@@ -233,7 +273,12 @@ def _is_auth_error(error) -> bool:
     return 'authentication is required' in lowered or 'login required' in lowered or 'log in for access' in lowered
 
 
-def _attempt_download(video_url: str, attempted_formats: list[str], label: str | None = None):
+def _attempt_download(
+    video_url: str,
+    attempted_formats: list[str],
+    label: str | None = None,
+    output_name: str | None = None,
+):
     result = None
     last_exception: Exception | None = None
     selected_format: str | None = None
@@ -241,7 +286,7 @@ def _attempt_download(video_url: str, attempted_formats: list[str], label: str |
     for format_selection in _get_format_candidates(video_url):
         reported_format = f"{format_selection} ({label})" if label else format_selection
         attempted_formats.append(reported_format)
-        ydl_opts = _create_ydl_opts(format_selection)
+        ydl_opts = _create_ydl_opts(format_selection, output_name)
         logger.debug("Attempting download with format '%s' for url %s", format_selection, video_url)
 
         try:
@@ -393,6 +438,22 @@ def download(videoUrl: str, detect_repost: bool = True):
                 download_method = "yt-dlp-kkclip-embed-media"
                 # The CDN URL's ID is unstable and long; key reposts on the reel shortcode instead.
                 canonical_video_id = _get_instagram_shortcode(videoUrl)
+
+    if result is None and response['platform'] == 'reddit':
+        embed_media_urls, vreddit_id = _resolve_reddit_embed_media_urls(videoUrl)
+        for embed_media_url in embed_media_urls:
+            logger.info("Direct Reddit download failed; retrying with vxreddit-resolved URL %s", embed_media_url)
+            result, selected_format, last_exception = _attempt_download(
+                embed_media_url,
+                attempted_formats,
+                label='vxreddit-embed-media',
+                # The generic extractor would name every HLS master "HLSPlaylist".
+                output_name=vreddit_id,
+            )
+            if result is not None:
+                download_method = "yt-dlp-vxreddit-embed-media"
+                canonical_video_id = vreddit_id
+                break
 
     if result is None:
         for alternate_url, alternate_label in _get_alternate_urls(videoUrl, response['platform']):
