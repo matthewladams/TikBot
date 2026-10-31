@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 
 _KKCLIP_REEL_RE = re.compile(r"/(?:reel|p|tv)/(?P<shortcode>[^/?#]+)", re.IGNORECASE)
 _VREDDIT_ID_RE = re.compile(r"^https://v\.redd\.it/(?P<id>[A-Za-z0-9]+)/")
+# Videos embedded in comments: vxreddit only echoes this player link as text, with no og:video.
+_REDDIT_INLINE_VIDEO_RE = re.compile(r"reddit\.com/link/[A-Za-z0-9]+/video/(?P<id>[A-Za-z0-9]+)/player")
 _META_MEDIA_RE = re.compile(
     r'<meta[^>]+(?:property|name)=["\'](?:og:video(?::secure_url)?|twitter:player:stream)["\'][^>]+content=["\'](?P<url>[^"\']+)["\']',
     re.IGNORECASE,
@@ -125,7 +127,7 @@ def _get_kkclip_probe_urls(video_url: str) -> list[str]:
     return list(dict.fromkeys(probe_urls))
 
 
-def _probe_embed_media_url(probe_urls: list[str], source: str) -> str | None:
+def _probe_embed_media_url(probe_urls: list[str], source: str, body_fallback=None) -> str | None:
     """Fetch embed-fixer pages as Discord would and return the video they advertise."""
     headers = {
         'User-Agent': 'Discordbot/2.0',
@@ -152,6 +154,10 @@ def _probe_embed_media_url(probe_urls: list[str], source: str) -> str | None:
                     if _looks_like_direct_video_url(media_url):
                         logger.info("Resolved %s meta media URL %s -> %s", source, probe_url, media_url)
                         return media_url
+                media_url = body_fallback(body) if body_fallback else None
+                if media_url:
+                    logger.info("Resolved %s page media URL %s -> %s", source, probe_url, media_url)
+                    return media_url
         finally:
             response.close()
 
@@ -174,6 +180,11 @@ def _get_vxreddit_url(video_url: str) -> str | None:
     return f"https://vxreddit.com{parsed.path or '/'}"
 
 
+def _find_reddit_inline_video_url(body: str) -> str | None:
+    match = _REDDIT_INLINE_VIDEO_RE.search(body)
+    return f"https://v.redd.it/{match.group('id')}/HLSPlaylist.m3u8" if match else None
+
+
 def _resolve_reddit_embed_media_urls(video_url: str) -> tuple[list[str], str | None]:
     """Use vxreddit to find a post's video without Reddit's (now login-only) JSON API.
 
@@ -184,8 +195,9 @@ def _resolve_reddit_embed_media_urls(video_url: str) -> tuple[list[str], str | N
     if not vxreddit_url:
         return [], None
 
-    media_url = _probe_embed_media_url([vxreddit_url], 'vxreddit')
+    media_url = _probe_embed_media_url([vxreddit_url], 'vxreddit', _find_reddit_inline_video_url)
     if not media_url:
+        logger.info("vxreddit found no video for %s", vxreddit_url)
         return [], None
 
     candidates: list[str] = []
@@ -198,7 +210,7 @@ def _resolve_reddit_embed_media_urls(video_url: str) -> tuple[list[str], str | N
         vreddit_id = match.group('id')
         candidates.append(f"https://v.redd.it/{vreddit_id}/HLSPlaylist.m3u8")
     candidates.append(media_url)
-    return candidates, vreddit_id
+    return list(dict.fromkeys(candidates)), vreddit_id
 
 
 def _create_ydl_opts(format_selection: str, output_name: str | None = None) -> dict:

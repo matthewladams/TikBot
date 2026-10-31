@@ -842,6 +842,24 @@ class TestDownloaderFormatSelection(DownloaderTestCase):
         self.assertEqual(vreddit_id, "q8dh99rf0ivh1")
         self.assertEqual(candidates, ["https://v.redd.it/q8dh99rf0ivh1/HLSPlaylist.m3u8", fallback])
 
+    def test_resolve_reddit_embed_media_urls_finds_comment_inline_video(self):
+        response = mock.Mock()
+        response.url = "https://vxreddit.com/r/test/s/abc123"
+        response.headers = {"content-type": "text/html; charset=utf-8"}
+        response.encoding = "utf-8"
+        response.raw.read.return_value = (
+            b'<meta property="og:description" '
+            b'content="https://reddit.com/link/19rvngty6s0v5/video/y0da223yflyh1/player" />'
+        )
+
+        with mock.patch("downloader.requests.get", return_value=response):
+            candidates, vreddit_id = downloader_module._resolve_reddit_embed_media_urls(
+                "https://www.reddit.com/r/test/s/abc123"
+            )
+
+        self.assertEqual(vreddit_id, "y0da223yflyh1")
+        self.assertEqual(candidates, ["https://v.redd.it/y0da223yflyh1/HLSPlaylist.m3u8"])
+
     def test_reddit_download_falls_back_to_vxreddit_on_auth_error(self):
         auth_error = downloader_module.DownloadError("ERROR: [Reddit] abc: Account authentication is required.")
         with tempfile.TemporaryDirectory() as tmp:
